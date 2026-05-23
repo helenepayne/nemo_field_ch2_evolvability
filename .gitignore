@@ -15,6 +15,16 @@
 # package is published.
 data/
 
+# Images
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.svg
+*.bmp
+*.tif
+*.tiff
+
 # Quercus fortran build artifacts (Topend etc. produce these locally)
 *.o
 *.so

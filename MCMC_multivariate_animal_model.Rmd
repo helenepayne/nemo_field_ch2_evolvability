@@ -92,7 +92,7 @@ if (TEST_RUN) {
 # Data are loaded from the repo-local data/ directory, populated either by
 # R/fetch_dryad.R (first run; downloads from Dryad doi:10.5061/dryad.pvmcvdp1p)
 # or manually while the Dryad package is private.
-source(here::here("R", "fetch_dryad.R"))
+source(here::here("fetch_dryad.R"))
 fetch_dryad(c("AC_compiledsheet_full_2022.csv",
               "BB_compiledsheet_full_2022.csv",
               "BO_compiledsheet_full_2022.csv",
