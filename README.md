@@ -1,19 +1,12 @@
 # nemo_field_ch2_evolvability
 
-Chapter 2 analysis code for the *Nemophila menziesii* common-garden field
-experiment: multivariate-animal-model estimation of the G-matrix, evolvability,
-and selection gradients in four California populations, with supporting Quercus
-pedigree-reconstruction pipeline.
+Chapter 2 analysis code for a pedigreed breeding design in four distinct populations of the annual wildflower, *Nemophila menziesii*, across a latitudinal gradient in California to estimate additive genetic variance, genetic correlations, selection gradients, and evolvability for five traits (corolla diameter, specific leaf area, δ¹³C, mean seed mass, and fecundity).
 
 The repository contains:
 
 - **MCMC_Animal_Model/** — the multivariate animal model (Bayesian, MCMCglmm)
   that produces V_A, h², r_A, evolvability, β_P and β_G. The current draft is
   `MCMC_multivariate_animal_model_v2.Rmd`; `_v1` is preserved for reference.
-- **Quercus pedigree-reconstruction inputs/outputs** — `*_2022_G1/`,
-  `*_2023_G1/`, `*_2023_G2/`, `Input-Output/`, and the Fortran `nf3*` /
-  `fend*` binaries.
-- **figures_rcode/** — scripts to produce manuscript figures.
 
 ## Data
 
@@ -54,5 +47,4 @@ formerly named `MCMC Animal Model ` (with trailing space) was renamed to
 
 ## Authors
 
-Helen E. Payne, with contributions from Devin Gamble (Quercus pedigree
-pipeline). See `git log` for per-file attribution in the parent monorepo.
+Helen E. Payne. See `git log` for per-file attribution in the parent monorepo.
