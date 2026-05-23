@@ -1,0 +1,1046 @@
+---
+title: "Quercus_figures"
+author: "Helen Payne"
+date: "2025-08-20"
+output: html_document
+---
+
+#BV FOR AC
+```{r}
+AC_22 <- read_csv(here::here("data_sheets/compiled_sheets/AC_compiledsheet_full_2022.csv")) 
+
+library(dplyr)
+
+#organize the data
+AC_22 <- AC_22 %>%
+  mutate(
+    sample_ID = str_c(Year, Recipient, Gen, str_pad(Transect, width = 3, pad = "0"), Plant_ID, sep = "-"), #create an id column for each individual
+    sample_ID = str_replace(sample_ID, "^([^_]*)_", "\\1-"), #use "_" rather than "-"
+    F_plant = ifelse(F_plant == TRUE, 1, 0), #make fitness plant binary (1/0) rather than true/false
+    Transect = as.numeric(Transect)) #make sure location is a continuous variable
+
+#clean the data
+AC_22 <- AC_22 %>%
+  mutate(
+    surv_to_flower = ifelse(total_fruits > 0 & surv_to_flower == 0, 1, surv_to_flower), #If a plant produced any fruits, it must have survived to flowering, even if the original surv_to_flower entry was coded as 0, This corrects miscodings where survival to flowering was mistakenly marked as 0 despite having fruit production
+  ) %>%
+    filter(!is.na(Transect)) # We are removing W1 and W2 from these analyses because they were part of a different experiment involving a watered treatment. 
+## In the original dataset, we included some extra fitness plants (see `anyFit_P`) in other transects for comparison with W1 and W2. 
+### For the purposes of these analyses, we will exclude them and focus only on the `F_plant` values that are recorded for every segment.
+
+AC_22$F_plant[is.na(AC_22$F_plant)] <- 0 #we need to make F_plant 0 and not NA
+
+#Now we want to make sure every segment is represented by one F_plant (because we will filter by F_plant soon)
+AC_22 <- AC_22 %>%
+  mutate(sample_prefix = substr(sample_ID, 1, 19)) %>% #create a sample prefix with the first 19 characters of sample ID
+  group_by(sample_prefix) %>% #group by the prefix
+  mutate(
+    all_dead = all(surv_to_flower == 0), #flags groups where no plants survived and where there are currently no fitness plants
+##if a group has no fitness plants, it randomly assigns one plant in the group to be the fitness plant
+    no_f_plant = sum(F_plant) == 0, 
+    F_plant = if_else(
+      no_f_plant & row_number() == sample(n(), 1),
+      1L,
+      F_plant
+    ) #this will pick different individuals within the group each time unless you set a seed. For the purposes of this analyses, it will not matter because their values will be zero either way.
+  ) %>%
+  ungroup() %>%
+  dplyr::select(-sample_prefix, -all_dead, -no_f_plant) #ungroup and remove the rows that were created\
+
+
+#Now we want to determine how many individuals within a segment survived to flower
+AC_22 <- AC_22 %>%
+  mutate(group = ceiling(row_number() / 8)) %>%  # Create a grouping variable for every 8 rows
+  # Calculate the sum of 'surv_to_flower' within each group
+  group_by(group) %>%
+  mutate(total_surv_to_flower = sum(surv_to_flower, na.rm = TRUE)) %>%
+  ungroup() %>% # Ungroup to avoid grouped data frame
+  # Remove the temporary 'group' column
+  dplyr::select(-group)
+
+# Filter to fitness plants once
+AC_22 <- AC_22 %>%
+  filter(F_plant == 1)
+```
+
+```{r}
+AC_22 <- AC_22_filtered %>%
+  group_by(Recipient) %>%
+  mutate(
+    avg_mat_fitness = mean(est_fecundity, na.rm = TRUE),
+    avg_mat_corolla = mean(corolla_diam_mm_SEG, na.rm = TRUE),
+    avg_mat_SLA     = mean(SLA_SEG, na.rm = TRUE),
+    avg_mat_d13C    = mean(d13C_SEG, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  group_by(Donor) %>%
+  mutate(
+    avg_pat_fitness = mean(avg_mat_fitness, na.rm = TRUE),
+    avg_pat_corolla = mean(avg_mat_corolla, na.rm = TRUE),
+    avg_pat_SLA     = mean(avg_mat_SLA, na.rm = TRUE),
+    avg_pat_d13C    = mean(avg_mat_d13C, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    avg_fitness = mean(avg_pat_fitness, na.rm = TRUE),
+    BV_fitness  = avg_pat_fitness / avg_fitness
+  )
+```
+
+
+
+```{r}
+# list of traits you want to process
+traits <- c("fitness", "corolla_diam_mm_SEG", "d13C_SEG", "SLA_SEG")
+
+library(dplyr)
+
+traits <- c("fitness", "corolla_diam_mm_SEG", "d13C_SEG", "SLA_SEG")
+
+# For each trait, prefer "avg_mat_<trait>" if present; else use "<trait>"
+source_cols <- setNames(
+  ifelse(paste0("avg_mat_", traits) %in% names(AC_22),
+         paste0("avg_mat_", traits),
+         traits),
+  traits
+)
+
+for (tr in traits) {
+  src     <- source_cols[[tr]]                 # actual source col name in AC_22
+  pat_col <- paste0("avg_pat_", tr)            # donor-mean col to create
+  bv_col  <- paste0("BV_", tr)                 # BV col to create
+
+  AC_22 <- AC_22 %>%
+    group_by(Donor) %>%
+    mutate(!!pat_col := mean(.data[[src]], na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(!!bv_col  := .data[[pat_col]] / mean(.data[[pat_col]], na.rm = TRUE))
+}
+
+library(dplyr)
+library(tidyr)
+library(rlang)
+library(ggplot2)
+library(grid)
+
+make_panel_obs <- function(dat, x_col, y_col, beta_x, x_lab,
+                           y_lab = "AC genetic value: estimated fitness",
+                           r_override = NULL) {
+  x_sym <- rlang::ensym(x_col)
+  y_sym <- rlang::ensym(y_col)
+
+  d <- dat %>%
+    dplyr::select(x = !!x_sym, y = !!y_sym) %>%
+    tidyr::drop_na() %>%
+    dplyr::mutate(
+      x = as.numeric(scale(x, center = TRUE, scale = FALSE)),
+      y = as.numeric(scale(y, center = TRUE, scale = FALSE))
+    )
+
+  if (nrow(d) < 3) stop("Not enough non-missing points for ellipse/correlation.")
+
+  # raw BV correlation (just for the ellipse/feel)
+  r_pair <- suppressWarnings(cor(d$x, d$y))
+
+  # what to display: use override (from G-matrix) if supplied
+  r_to_show <- if (is.null(r_override)) r_pair else r_override
+
+  # arrow showing selection gradient direction
+  ax <- sign(beta_x) * 0.6 * sd(d$x)
+  ay <- 0.6 * sd(d$y)
+
+  ggplot(d, aes(x, y)) +
+    geom_point(alpha = 0.35, size = 1) +
+    stat_ellipse(level = 0.68, linewidth = 0.6) +
+    geom_segment(
+  x = 0, y = 0, 
+  xend = ax, yend = ay,
+  arrow = arrow(length = unit(0.18, "cm")), 
+  linewidth = 0.7
+)+
+    annotate("text", x = Inf, y = -Inf,
+             label = paste0("r[A] = ", sprintf("%.3f", r_to_show)),
+             hjust = 1.1, vjust = -0.6, size = 4.2) +
+    labs(x = paste0("AC genetic value: ", x_lab), y = y_lab) +
+    theme_classic(base_size = 12)
+}
+
+# Official rA for AC 2022 G1
+rA_vals <- list(
+  corolla_diam = 0.511,
+  SLA          = 0.322,
+  d13C         = 0.120
+)
+
+# Named numeric vector; note the backticks for the name with a space
+sel_grad <- c(`corolla diameter` = 0.323,
+              SLA                = 0.591,
+              dC13               = 0.041)
+
+p_cd <- make_panel_obs(
+  AC_22,
+  x_col  = BV_corolla_diam_mm_SEG,
+  y_col  = BV_fitness,
+  beta_x = sel_grad["corolla diameter"],
+  x_lab  = "corolla diameter",
+  r_override = rA_vals$corolla_diam
+)
+
+p_sla <- make_panel_obs(AC_22, BV_SLA_SEG,  BV_fitness,
+                        beta_x = sel_grad["SLA"],  x_lab = "SLA",
+                        r_override = rA_vals$SLA)
+
+p_dc  <- make_panel_obs(AC_22, BV_d13C_SEG, BV_fitness,
+                        beta_x = sel_grad["dC13"], x_lab = "d13C",
+                        r_override = rA_vals$d13C)
+
+p_sla
+p_dc
+
+ggsave(
+  filename = "quercus/figures_rcode/AC_BV.jpg",
+  plot = (p_cd | p_sla) | p_dc,
+  device = "jpg",
+  dpi = 1200,
+  width = 12, height = 5
+)
+```
+
+#BV FOR BB
+```{r}
+BB_22 <- read_csv(here::here("data_sheets/compiled_sheets/BB_compiledsheet_full_2022.csv")) 
+
+library(dplyr)
+
+#organize the data
+BB_22 <- BB_22 %>%
+  mutate(
+    sample_ID = str_c(Year, Recipient, Gen, str_pad(Location, width = 3, pad = "0"), Plant_ID, sep = "-"), #create an id column for each individual
+    sample_ID = str_replace(sample_ID, "^([^_]*)_", "\\1-"), #use "_" rather than "-"
+    F_plant = ifelse(F_plant == TRUE, 1, 0), #make fitness plant binary (1/0) rather than true/false
+    Location = as.numeric(Location)) #make sure location is a continuous variable
+
+#clean the data
+BB_22 <- BB_22 %>%
+  mutate(
+    surv_to_flower = ifelse(total_fruits > 0 & surv_to_flower == 0, 1, surv_to_flower), #If a plant produced any fruits, it must have survived to flowering
+  ) %>%
+    filter(!is.na(Location)) # remove W1 and W2
+
+BB_22$F_plant[is.na(BB_22$F_plant)] <- 0 #make F_plant 0 and not NA
+
+#Now we want to make sure every segment is represented by one F_plant
+BB_22 <- BB_22 %>%
+  mutate(sample_prefix = substr(sample_ID, 1, 19)) %>%
+  group_by(sample_prefix) %>%
+  mutate(
+    all_dead = all(surv_to_flower == 0),
+    no_f_plant = sum(F_plant) == 0, 
+    F_plant = if_else(
+      no_f_plant & row_number() == sample(n(), 1),
+      1L,
+      F_plant
+    )
+  ) %>%
+  ungroup() %>%
+  dplyr::select(-sample_prefix, -all_dead, -no_f_plant)
+
+#Now we want to determine how many individuals within a segment survived to flower
+BB_22 <- BB_22 %>%
+  mutate(group = ceiling(row_number() / 8)) %>%
+  group_by(group) %>%
+  mutate(total_surv_to_flower = sum(surv_to_flower, na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::select(-group)
+
+#Filter to just fitness plants
+BB_22_filtered <- BB_22 %>%
+  filter(F_plant == 1)
+```
+
+```{r}
+BB_22 <- BB_22_filtered %>%
+  group_by(Recipient) %>%
+  mutate(
+    avg_mat_fitness  = mean(est_fecundity, na.rm = TRUE),
+    avg_mat_corolla  = mean(corolla_diam_mm_SEG, na.rm = TRUE),
+    avg_mat_SLA      = mean(SLA_SEG, na.rm = TRUE),
+    avg_mat_d13C     = mean(d13C_SEG, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  group_by(Donor) %>%
+  mutate(
+    avg_pat_fitness  = mean(avg_mat_fitness, na.rm = TRUE),
+    avg_pat_corolla  = mean(avg_mat_corolla, na.rm = TRUE),
+    avg_pat_SLA      = mean(avg_mat_SLA, na.rm = TRUE),
+    avg_pat_d13C     = mean(avg_mat_d13C, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    avg_fitness = mean(avg_pat_fitness, na.rm = TRUE),
+    BV_fitness  = avg_pat_fitness / avg_fitness
+  )
+```
+
+
+
+```{r}
+# list of traits you want to process
+traits <- c("fitness", "corolla_diam_mm_SEG", "d13C_SEG", "SLA_SEG")
+
+library(dplyr)
+
+traits <- c("fitness", "corolla_diam_mm_SEG", "d13C_SEG", "SLA_SEG")
+
+# For each trait, prefer "avg_mat_<trait>" if present; else use "<trait>"
+source_cols <- setNames(
+  ifelse(paste0("avg_mat_", traits) %in% names(BB_22),
+         paste0("avg_mat_", traits),
+         traits),
+  traits
+)
+
+for (tr in traits) {
+  src     <- source_cols[[tr]]                 # actual source col name in AC_22
+  pat_col <- paste0("avg_pat_", tr)            # donor-mean col to create
+  bv_col  <- paste0("BV_", tr)                 # BV col to create
+
+BB_22 <- BB_22 %>%
+    group_by(Donor) %>%
+    mutate(!!pat_col := mean(.data[[src]], na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(!!bv_col  := .data[[pat_col]] / mean(.data[[pat_col]], na.rm = TRUE))
+}
+
+library(dplyr)
+library(tidyr)
+library(rlang)
+library(ggplot2)
+library(grid)
+
+make_panel_obs <- function(dat, x_col, y_col, beta_x, x_lab,
+                           y_lab = "BB genetic value: estimated fitness",
+                           r_override = NULL) {
+  x_sym <- rlang::ensym(x_col)
+  y_sym <- rlang::ensym(y_col)
+
+  d <- dat %>%
+    dplyr::select(x = !!x_sym, y = !!y_sym) %>%
+    tidyr::drop_na() %>%
+    dplyr::mutate(
+      x = as.numeric(scale(x, center = TRUE, scale = FALSE)),
+      y = as.numeric(scale(y, center = TRUE, scale = FALSE))
+    )
+
+  if (nrow(d) < 3) stop("Not enough non-missing points for ellipse/correlation.")
+
+  # raw BV correlation (just for the ellipse/feel)
+  r_pair <- suppressWarnings(cor(d$x, d$y))
+
+  # what to display: use override (from G-matrix) if supplied
+  r_to_show <- if (is.null(r_override)) r_pair else r_override
+
+  # arrow showing selection gradient direction
+  ax <- sign(beta_x) * 0.6 * sd(d$x)
+  ay <- 0.6 * sd(d$y)
+
+  ggplot(d, aes(x, y)) +
+    geom_point(alpha = 0.35, size = 1) +
+    stat_ellipse(level = 0.68, linewidth = 0.6) +
+    geom_segment(
+  x = 0, y = 0, 
+  xend = ax, yend = ay,
+  arrow = arrow(length = unit(0.18, "cm")), 
+  linewidth = 0.7
+)+
+    annotate("text", x = Inf, y = -Inf,
+             label = paste0("r[A] = ", sprintf("%.3f", r_to_show)),
+             hjust = 1.1, vjust = -0.6, size = 4.2) +
+    labs(x = paste0("BB genetic value: ", x_lab), y = y_lab) +
+    theme_classic(base_size = 12)
+}
+
+# Official rA for BB 2022 G1
+rA_vals <- list(
+  corolla_diam = -1.007,
+  SLA          = NA,
+  d13C         = -0.386
+)
+
+# Named numeric vector; note the backticks for the name with a space
+sel_grad <- c(`corolla diameter` = -0.447,
+              SLA                = NA,
+              dC13               = -0.021)
+
+p_cd <- make_panel_obs(
+  BB_22,
+  x_col  = BV_corolla_diam_mm_SEG,
+  y_col  = BV_fitness,
+  beta_x = sel_grad["corolla diameter"],
+  x_lab  = "corolla diameter",
+  r_override = rA_vals$corolla_diam
+)
+
+p_sla <- make_panel_obs(BB_22, BV_SLA_SEG,  BV_fitness,
+                        beta_x = sel_grad["SLA"],  x_lab = "SLA",
+                        r_override = rA_vals$SLA)
+
+p_dc  <- make_panel_obs(BB_22, BV_d13C_SEG, BV_fitness,
+                        beta_x = sel_grad["dC13"], x_lab = "d13C",
+                        r_override = rA_vals$d13C)
+
+(fig <- (p_cd | p_sla) | p_dc)
+
+ggsave(
+  filename = "quercus/figures_rcode/BB_BV.jpg",
+  plot = (p_cd | p_sla) | p_dc,
+  device = "jpg",
+  dpi = 1200,
+  width = 12, height = 5
+)
+```
+
+#BV for BO
+```{r}
+BO_22 <- read_csv(here::here("data_sheets/compiled_sheets/BO_compiledsheet_full_2022.csv")) 
+
+library(dplyr)
+
+#organize the data
+BO_22 <- BO_22 %>%
+  mutate(
+    sample_ID = str_c(Year, Recipient, Gen, str_pad(Transect, width = 3, pad = "0"), Plant_ID, sep = "-"), #create an id column for each individual
+    sample_ID = str_replace(sample_ID, "^([^_]*)_", "\\1-"), #use "_" rather than "-"
+    F_plant = ifelse(F_plant == TRUE, 1, 0), #make fitness plant binary (1/0) rather than true/false
+    Transect = as.numeric(Transect)) #make sure location is a continuous variable
+
+#clean the data
+BO_22 <- BO_22 %>%
+  mutate(
+    surv_to_flower = ifelse(total_fruits > 0 & surv_to_flower == 0, 1, surv_to_flower), #If a plant produced any fruits, it must have survived to flowering
+  ) %>%
+    filter(!is.na(Transect)) # remove W1 and W2
+
+BO_22$F_plant[is.na(BO_22$F_plant)] <- 0 #make F_plant 0 and not NA
+
+#Now we want to make sure every segment is represented by one F_plant
+BO_22 <- BO_22 %>%
+  mutate(sample_prefix = substr(sample_ID, 1, 19)) %>%
+  group_by(sample_prefix) %>%
+  mutate(
+    all_dead = all(surv_to_flower == 0),
+    no_f_plant = sum(F_plant) == 0, 
+    F_plant = if_else(
+      no_f_plant & row_number() == sample(n(), 1),
+      1L,
+      F_plant
+    )
+  ) %>%
+  ungroup() %>%
+  dplyr::select(-sample_prefix, -all_dead, -no_f_plant)
+
+#Now we want to determine how many individuals within a segment survived to flower
+BO_22 <- BO_22 %>%
+  mutate(group = ceiling(row_number() / 8)) %>%
+  group_by(group) %>%
+  mutate(total_surv_to_flower = sum(surv_to_flower, na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::select(-group)
+
+#Filter to just fitness plants
+BO_22_filtered <- BO_22 %>%
+  filter(F_plant == 1)
+
+ BO_22 <- BO_22_filtered %>%
+   group_by(Recipient) %>%
+   mutate(avg_mat_fitness = mean(est_fecundity, na.rm = TRUE)) %>%
+   ungroup()
+ 
+ BO_22 <- BO_22 %>%
+   group_by(Donor) %>%
+   mutate(avg_pat_fitness = mean(avg_mat_fitness, na.rm = TRUE)) %>%
+   ungroup()
+ 
+ BO_22 <- BO_22 %>%
+   mutate(avg_fitness = mean(avg_pat_fitness, na.rm = TRUE))
+ 
+ BO_22 <- BO_22 %>%
+   mutate(BV_fitness = avg_pat_fitness/avg_fitness)
+ 
+ BO_22 <-  BO_22_filtered %>%
+  group_by(Recipient) %>%
+  mutate(avg_mat_corolla_diam_mm_SEG = mean(corolla_diam_mm_SEG, na.rm = TRUE)) %>%
+  ungroup()
+
+ BO_22 <-  BO_22 %>%
+  group_by(Donor) %>%
+  mutate(avg_pat_corolla_diam_mm_SEG = mean(avg_mat_corolla_diam_mm_SEG, na.rm = TRUE)) %>%
+  ungroup()
+
+ BO_22 %>%
+   mutate(avg_corolla_diam = mean(avg_pat_corolla_diam_mm_SEG, na.rm = TRUE))
+ 
+ BO_22 <-  BO_22_filtered %>%
+  group_by(Recipient) %>%
+  mutate(avg_mat_SLA_SEG = mean(SLA_SEG, na.rm = TRUE)) %>%
+  ungroup()
+
+ BO_22 <-  BO_22 %>%
+  group_by(Donor) %>%
+  mutate(avg_pat_SLA_SEG = mean(avg_mat_SLA_SEG, na.rm = TRUE)) %>%
+  ungroup()
+ 
+ BO_22 %>%
+   mutate(avg_SLA = mean(avg_pat_SLA_SEG, na.rm = TRUE))
+ 
+ BO_22 <-  BO_22_filtered %>%
+  group_by(Recipient) %>%
+  mutate(avg_mat_d13C_SEG = mean(d13C_SEG, na.rm = TRUE)) %>%
+  ungroup()
+
+ BO_22 <-  BO_22 %>%
+  group_by(Donor) %>%
+  mutate(avg_pat_d13C_SEG = mean(avg_mat_d13C_SEG, na.rm = TRUE)) %>%
+  ungroup()
+ 
+ BO_22 %>%
+   mutate(avg_d13C = mean(avg_pat_d13C_SEG, na.rm = TRUE))
+
+```
+
+
+```{r}
+# list of traits you want to process
+traits <- c("fitness", "corolla_diam_mm_SEG", "d13C_SEG", "SLA_SEG")
+
+library(dplyr)
+
+traits <- c("fitness", "corolla_diam_mm_SEG", "d13C_SEG", "SLA_SEG")
+
+# For each trait, prefer "avg_mat_<trait>" if present; else use "<trait>"
+source_cols <- setNames(
+  ifelse(paste0("avg_mat_", traits) %in% names( BO_22),
+         paste0("avg_mat_", traits),
+         traits),
+  traits
+)
+
+for (tr in traits) {
+  src     <- source_cols[[tr]]                 # actual source col name in  BO_22
+  pat_col <- paste0("avg_pat_", tr)            # donor-mean col to create
+  bv_col  <- paste0("BV_", tr)                 # BV col to create
+
+ BO_22 <-  BO_22 %>%
+    group_by(Donor) %>%
+    mutate(!!pat_col := mean(.data[[src]], na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(!!bv_col  := .data[[pat_col]] / mean(.data[[pat_col]], na.rm = TRUE))
+}
+
+library(dplyr)
+library(tidyr)
+library(rlang)
+library(ggplot2)
+library(grid)
+
+make_panel_obs <- function(dat, x_col, y_col, beta_x, x_lab,
+                           y_lab = "BO genetic value: estimated fitness",
+                           r_override = NULL) {
+  x_sym <- rlang::ensym(x_col)
+  y_sym <- rlang::ensym(y_col)
+
+  d <- dat %>%
+    dplyr::select(x = !!x_sym, y = !!y_sym) %>%
+    tidyr::drop_na() %>%
+    dplyr::mutate(
+      x = as.numeric(scale(x, center = TRUE, scale = FALSE)),
+      y = as.numeric(scale(y, center = TRUE, scale = FALSE))
+    )
+
+  if (nrow(d) < 3) stop("Not enough non-missing points for ellipse/correlation.")
+
+  # raw BV correlation (just for the ellipse/feel)
+  r_pair <- suppressWarnings(cor(d$x, d$y))
+
+  # what to display: use override (from G-matrix) if supplied
+  r_to_show <- if (is.null(r_override)) r_pair else r_override
+
+  # arrow showing selection gradient direction
+  ax <- sign(beta_x) * 0.6 * sd(d$x)
+  ay <- 0.6 * sd(d$y)
+
+  ggplot(d, aes(x, y)) +
+    geom_point(alpha = 0.35, size = 1) +
+    stat_ellipse(level = 0.68, linewidth = 0.6) +
+    geom_segment(
+  x = 0, y = 0, 
+  xend = ax, yend = ay,
+  arrow = arrow(length = unit(0.18, "cm")), 
+  linewidth = 0.7
+)+
+    annotate("text", x = Inf, y = -Inf,
+             label = paste0("r[A] = ", sprintf("%.3f", r_to_show)),
+             hjust = 1.1, vjust = -0.6, size = 4.2) +
+    labs(x = paste0("BO genetic value: ", x_lab), y = y_lab) +
+    theme_classic(base_size = 12)
+}
+
+# Official rA for BO 2022 G1
+rA_vals <- list(
+  corolla_diam = 0.981,
+  SLA          = -1.042,
+  d13C         = 0.979
+)
+
+# Named numeric vector; note the backticks for the name with a space
+sel_grad <- c(`corolla diameter` = 0.315,
+              SLA                = -0.514,
+              dC13               = 0.041)
+
+p_cd <- make_panel_obs(
+  BO_22,
+  x_col  = BV_corolla_diam_mm_SEG,
+  y_col  = BV_fitness,
+  beta_x = sel_grad["corolla diameter"],
+  x_lab  = "corolla diameter",
+  r_override = rA_vals$corolla_diam
+)
+
+p_sla <- make_panel_obs(BO_22, BV_SLA_SEG,  BV_fitness,
+                        beta_x = sel_grad["SLA"],  x_lab = "SLA",
+                        r_override = rA_vals$SLA)
+
+p_dc  <- make_panel_obs(BO_22, BV_d13C_SEG, BV_fitness,
+                        beta_x = sel_grad["dC13"], x_lab = "d13C",
+                        r_override = rA_vals$d13C)
+
+(fig <- (p_cd | p_sla) | p_dc)
+
+ggsave(
+  filename = "quercus/figures_rcode/BO_BV.jpg",
+  plot = (p_cd | p_sla) | p_dc,
+  device = "jpg",
+  dpi = 1200,
+  width = 12, height = 5
+)
+```
+
+
+#BV for HR
+```{r}
+HR_22 <- read_csv(here::here("data_sheets/compiled_sheets/HR_compiledsheet_full_2022.csv")) 
+
+library(dplyr)
+
+#organize the data
+HR_22 <- HR_22 %>%
+  mutate(
+    sample_ID = str_c(Year, Recipient, Gen, str_pad(Transect, width = 3, pad = "0"), Plant_ID, sep = "-"), #create an id column for each individual
+    sample_ID = str_replace(sample_ID, "^([^_]*)_", "\\1-"), #use "_" rather than "-"
+    F_plant = ifelse(F_plant == TRUE, 1, 0), #make fitness plant binary (1/0) rather than true/false
+    Transect = as.numeric(Transect)) #make sure location is a continuous variable
+
+#clean the data
+HR_22 <- HR_22 %>%
+  mutate(
+    surv_to_flower = ifelse(total_fruits > 0 & surv_to_flower == 0, 1, surv_to_flower), #If a plant produced any fruits, it must have survived to flowering
+  ) %>%
+    filter(!is.na(Transect)) # remove W1 and W2
+
+HR_22$F_plant[is.na(HR_22$F_plant)] <- 0 #make F_plant 0 and not NA
+
+#Now we want to make sure every segment is represented by one F_plant
+HR_22 <- HR_22 %>%
+  mutate(sample_prefix = substr(sample_ID, 1, 19)) %>%
+  group_by(sample_prefix) %>%
+  mutate(
+    all_dead = all(surv_to_flower == 0),
+    no_f_plant = sum(F_plant) == 0, 
+    F_plant = if_else(
+      no_f_plant & row_number() == sample(n(), 1),
+      1L,
+      F_plant
+    )
+  ) %>%
+  ungroup() %>%
+  dplyr::select(-sample_prefix, -all_dead, -no_f_plant)
+
+#Now we want to determine how many individuals within a segment survived to flower
+HR_22 <- HR_22 %>%
+  mutate(group = ceiling(row_number() / 8)) %>%
+  group_by(group) %>%
+  mutate(total_surv_to_flower = sum(surv_to_flower, na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::select(-group)
+
+#Filter to just fitness plants
+HR_22 <- HR_22 %>%
+  filter(F_plant == 1)
+
+ HR_22 <- HR_22 %>%
+   group_by(Recipient) %>%
+   mutate(avg_mat_fitness = mean(est_fecundity, na.rm = TRUE)) %>%
+   ungroup()
+ 
+ HR_22 <- HR_22 %>%
+   group_by(Donor) %>%
+   mutate(avg_pat_fitness = mean(avg_mat_fitness, na.rm = TRUE)) %>%
+   ungroup()
+ 
+ HR_22 <- HR_22 %>%
+   mutate(avg_fitness = mean(avg_pat_fitness, na.rm = TRUE))
+ 
+ HR_22 <- HR_22 %>%
+   mutate(BV_fitness = avg_pat_fitness/avg_fitness)
+ 
+ HR_22 <-  HR_22 %>%
+  group_by(Recipient) %>%
+  mutate(avg_mat_corolla_diam_mm_SEG = mean(corolla_diam_mm_SEG, na.rm = TRUE)) %>%
+  ungroup()
+
+ HR_22 <-  HR_22 %>%
+  group_by(Donor) %>%
+  mutate(avg_pat_corolla_diam_mm_SEG = mean(avg_mat_corolla_diam_mm_SEG, na.rm = TRUE)) %>%
+  ungroup()
+
+HR_22 <-  HR_22 %>%
+   mutate(avg_corolla_diam = mean(avg_pat_corolla_diam_mm_SEG, na.rm = TRUE))
+ 
+ HR_22 <-  HR_22 %>%
+  group_by(Recipient) %>%
+  mutate(avg_mat_SLA_SEG = mean(SLA_SEG, na.rm = TRUE)) %>%
+  ungroup()
+
+ HR_22 <-  HR_22 %>%
+  group_by(Donor) %>%
+  mutate(avg_pat_SLA_SEG = mean(avg_mat_SLA_SEG, na.rm = TRUE)) %>%
+  ungroup()
+ 
+ HR_22 %>%
+   mutate(avg_SLA = mean(avg_pat_SLA_SEG, na.rm = TRUE))
+ 
+ HR_22 <-  HR_22 %>%
+  group_by(Recipient) %>%
+  mutate(avg_mat_d13C_SEG = mean(d13C_SEG, na.rm = TRUE)) %>%
+  ungroup()
+
+HR_22 <-  HR_22 %>%
+  group_by(Donor) %>%
+  mutate(avg_pat_d13C_SEG = mean(avg_mat_d13C_SEG, na.rm = TRUE)) %>%
+  ungroup()
+ 
+ HR_22 %>%
+   mutate(avg_d13C = mean(avg_pat_d13C_SEG, na.rm = TRUE))
+
+```
+
+
+```{r}
+# list of traits you want to process
+traits <- c("fitness", "corolla_diam_mm_SEG", "d13C_SEG", "SLA_SEG")
+
+library(dplyr)
+
+traits <- c("fitness", "corolla_diam_mm_SEG", "d13C_SEG", "SLA_SEG")
+
+# For each trait, prefer "avg_mat_<trait>" if present; else use "<trait>"
+source_cols <- setNames(
+  ifelse(paste0("avg_mat_", traits) %in% names( HR_22),
+         paste0("avg_mat_", traits),
+         traits),
+  traits
+)
+
+for (tr in traits) {
+  src     <- source_cols[[tr]]                 # actual source col name in  BO_22
+  pat_col <- paste0("avg_pat_", tr)            # donor-mean col to create
+  bv_col  <- paste0("BV_", tr)                 # BV col to create
+
+ HR_22 <-  HR_22 %>%
+    group_by(Donor) %>%
+    mutate(!!pat_col := mean(.data[[src]], na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(!!bv_col  := .data[[pat_col]] / mean(.data[[pat_col]], na.rm = TRUE))
+}
+
+library(dplyr)
+library(tidyr)
+library(rlang)
+library(ggplot2)
+library(grid)
+
+make_panel_obs <- function(dat, x_col, y_col, beta_x, x_lab,
+                           y_lab = "HR genetic value: estimated fitness",
+                           r_override = NULL) {
+  x_sym <- rlang::ensym(x_col)
+  y_sym <- rlang::ensym(y_col)
+
+  d <- dat %>%
+    dplyr::select(x = !!x_sym, y = !!y_sym) %>%
+    tidyr::drop_na() %>%
+    dplyr::mutate(
+      x = as.numeric(scale(x, center = TRUE, scale = FALSE)),
+      y = as.numeric(scale(y, center = TRUE, scale = FALSE))
+    )
+
+  if (nrow(d) < 3) stop("Not enough non-missing points for ellipse/correlation.")
+
+  # raw BV correlation (just for the ellipse/feel)
+  r_pair <- suppressWarnings(cor(d$x, d$y))
+
+  # what to display: use override (from G-matrix) if supplied
+  r_to_show <- if (is.null(r_override)) r_pair else r_override
+
+  # arrow showing selection gradient direction
+  ax <- sign(beta_x) * 0.6 * sd(d$x)
+  ay <- 0.6 * sd(d$y)
+
+  ggplot(d, aes(x, y)) +
+    geom_point(alpha = 0.35, size = 1) +
+    stat_ellipse(level = 0.68, linewidth = 0.6) +
+    geom_segment(
+  x = 0, y = 0, 
+  xend = ax, yend = ay,
+  arrow = arrow(length = unit(0.18, "cm")), 
+  linewidth = 0.7
+)+
+    annotate("text", x = Inf, y = -Inf,
+             label = paste0("r[A] = ", sprintf("%.3f", r_to_show)),
+             hjust = 1.1, vjust = -0.6, size = 4.2) +
+    labs(x = paste0("HR genetic value: ", x_lab), y = y_lab) +
+    theme_classic(base_size = 12)
+}
+
+# Official rA for HR 2022 G1
+rA_vals <- list(
+  corolla_diam = 1.027,
+  SLA          = NA,
+  d13C         = -1.235
+)
+
+# Named numeric vector; note the backticks for the name with a space
+sel_grad <- c(`corolla diameter` = 0.290,
+              SLA                = -0.158,
+              dC13               = -0.184)
+
+p_cd <- make_panel_obs(
+  HR_22,
+  x_col  = BV_corolla_diam_mm_SEG,
+  y_col  = BV_fitness,
+  beta_x = sel_grad["corolla diameter"],
+  x_lab  = "corolla diameter",
+  r_override = rA_vals$corolla_diam
+)
+
+p_sla <- make_panel_obs(HR_22, BV_SLA_SEG,  BV_fitness,
+                        beta_x = sel_grad["SLA"],  x_lab = "SLA",
+                        r_override = rA_vals$SLA)
+
+p_dc  <- make_panel_obs(HR_22, BV_d13C_SEG, BV_fitness,
+                        beta_x = sel_grad["dC13"], x_lab = "d13C",
+                        r_override = rA_vals$d13C)
+
+(fig <- (p_cd | p_sla) | p_dc)
+
+ggsave(
+  filename = "quercus/figures_rcode/HR_BV.jpg",
+  plot = (p_cd | p_sla) | p_dc,
+  device = "jpg",
+  dpi = 1200,
+  width = 12, height = 5
+)
+```
+
+
+```{r}
+library(tidyverse)
+
+#prep
+df_plot <- read_csv("quercus/figures_rcode/quercus_results.csv") %>%
+  transmute(
+    Pop,
+    # pull "2022 G1", "2023 G1", "2023 G2" from "AC 2022 G1" etc.
+    Env   = sub("^[A-Z]+\\s+", "", Population),
+    trait = recode(trait,
+                   est_fit       = "fecundity",
+                   corolla_diam  = "corolla diameter",
+                   SLA           = "SLA",
+                   dC13          = "dC13"),
+    raw_means,
+    raw_means_se
+  ) %>%
+  mutate(
+    # facet order and x-axis order to match your reference
+    trait = factor(trait, levels = c("corolla diameter", "dC13", "fecundity", "SLA")),
+    Env   = factor(Env,   levels = c("2022 G1", "2023 G1", "2023 G2")),
+    Pop   = factor(Pop,   levels = c("AC","BB","BO","HR"))
+  )
+
+p <- ggplot(df_plot, aes(x = Env, y = raw_means, color = Pop, shape = Pop)) +
+  geom_point(size = 2.8, alpha = 0.9) +
+  geom_errorbar(aes(ymin = raw_means - raw_means_se, 
+                    ymax = raw_means + raw_means_se),
+                width = 0.2, linewidth = 0.6) +   # <- SE bars
+  facet_wrap(~ trait, scales = "free_y", ncol = 2) +
+  labs(x = "Year × Generation", y = "Trait mean",
+       color = "Population", shape = "Population") +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  ) +
+  scale_shape_manual(values = c(16, 17, 15, 18)) +
+  scale_color_manual(values = c(
+    AC = "#F8766D",  # red
+    BB = "#7CAE00",  # green
+    BO = "#00BFC4",  # teal
+    HR = "#C77CFF"   # purple
+  ))
+
+p
+
+P <- p + theme_bw(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+P
+
+# save
+ggsave('quercus/figures_rcode/trait_means.jpg', P, device = "jpg", 
+       dpi = 1200, width = 8, height = 6)
+
+```
+
+AC Correlation 2022
+```{r}
+library(ggplot2)
+library(reshape2)
+
+#G-matrix for AC 2022 G1
+G_AC22 <- matrix(c(
+  143.53433,  8.148266, 14.926858,  1.043195,
+    8.148266,  1.768103,  2.693436, -0.275527,
+   14.926858,  2.693436,  2.271721,  0.137218,
+    1.043195, -0.275527,  0.137218,  0.529539
+), nrow = 4, byrow = TRUE)
+
+colnames(G_AC22) <- rownames(G_AC22) <- c("est_fit", "corolla", "SLA", "d13C")
+
+# Convert to correlation matrix
+G_cor <- cov2cor(G_AC22)
+
+# Melt for ggplot
+df <- melt(G_cor)
+
+a <- ggplot(df, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  geom_text(aes(label = round(value, 2))) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Genetic correlation matrix: AC 2022 G1",
+       fill = "rA")
+```
+
+BB Correlations 2022
+```{r}
+library(ggplot2)
+library(reshape2)
+
+#G-matrix for BB 2022 G1
+G_BB22 <- matrix(c(
+    3.097,   -1.842,   NA,     -0.086,
+   -1.842,    1.081,   NA,      0.077,
+       NA,       NA,   NA,         NA,
+   -0.086,    0.077,   NA,      0.016
+  ), nrow = 4, byrow = TRUE)
+
+colnames(G_BB22) <- rownames(G_BB22) <- c("est_fit", "corolla", "SLA", "d13C")
+
+# Convert to correlation matrix
+G_cor <- cov2cor(G_BB22)
+
+# Melt for ggplot
+df <- melt(G_cor)
+
+b <- ggplot(df, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  geom_text(aes(label = round(value, 2))) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Genetic correlation matrix: BB 2022 G1",
+       fill = "rA")
+```
+
+
+BO Correlations 2022
+```{r}
+library(ggplot2)
+library(reshape2)
+
+#G-matrix for BO 2022 G1
+G_BO22 <- matrix(c(
+  6.394759,  1.664125, -2.714429,  0.214384,
+    1.664125,  0.450048,  -0.710969, 0.055752,
+   -2.714429,  -0.710969,  1.061645,  -0.085866,
+    0.214384, 0.055752,  -0.085866,  0.007506
+), nrow = 4, byrow = TRUE)
+
+colnames(G_BO22) <- rownames(G_BO22) <- c("est_fit", "corolla", "SLA", "d13C")
+
+# Convert to correlation matrix
+G_cor <- cov2cor(G_BO22)
+
+# Melt for ggplot
+df <- melt(G_cor)
+
+c <- ggplot(df, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  geom_text(aes(label = round(value, 2))) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Genetic correlation matrix: BO 2022 G1",
+       fill = "rA")
+```
+
+HR Correlations 2022
+```{r}
+library(ggplot2)
+library(reshape2)
+
+#G-matrix for HR 2022 G1
+G_HR22 <- matrix(c(
+  19.938179,  5.135736, -2.801576,  -3.250762,
+    5.135736,  1.253326,  0.138102, -0.25021,
+   -2.801576,  0.138102,  -0.233907,  -0.161678,
+    -3.250762, -0.25021,  -0.161678,  0.347754
+), nrow = 4, byrow = TRUE)
+
+colnames(G_HR22) <- rownames(G_HR22) <- c("est_fit", "corolla", "SLA", "d13C")
+
+# Convert to correlation matrix
+G_cor <- cov2cor(G_HR22)
+
+# Melt for ggplot
+df <- melt(G_cor)
+
+d <- ggplot(df, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  geom_text(aes(label = round(value, 2))) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Genetic correlation matrix: HR 2022 G1",
+       fill = "rA")
+```
+
+```{r}
+# save
+ggsave('quercus/figures_rcode/genetic_corr.jpg', (a|b) /(c|d), device = "jpg", 
+       dpi = 1200, width = 8, height = 6)
+
+
+a |b / c|d
+```
+

@@ -1,0 +1,104 @@
+nvarcov = 10
+Total number of (co)variances ("maxnparm")   60 for nf6.p
+Total number of (co)variances ("maxnparm")   30 for nf3.p
+nf = 1
+p =   16
+family1 has13
+family2 has13
+family3 has13
+family4 has13
+family5 has13
+family6 has13
+family7 has13
+family8 has13
+family9 has13
+family10 has13
+family11 has13
+family12 has13
+family13 has13
+family14 has13
+family15 has13
+family16 has13
+family17 has13
+family18 has13
+family19 has13
+family20 has13
+family21 has13
+family22 has13
+family23 has13
+family24 has13
+family25 has9
+family26 has13
+family27 has13
+family28 has12
+family29 has13
+family30 has13
+family31 has13
+family32 has13
+family33 has13
+family34 has13
+family35 has11
+family36 has13
+family37 has12
+family38 has13
+family39 has13
+family40 has13
+family41 has13
+family42 has13
+family43 has13
+family44 has13
+family45 has13
+family46 has12
+sibs=13
+rhsibs=9
+fsibs=3
+hsibs=9
+rfsibs=3
+nf3.p only needs rfsibs and rhsibs 
+non-missing observations for family1:35
+non-missing observations for family2:33
+non-missing observations for family3:36
+non-missing observations for family4:35
+non-missing observations for family5:36
+non-missing observations for family6:36
+non-missing observations for family7:35
+non-missing observations for family8:34
+non-missing observations for family9:36
+non-missing observations for family10:31
+non-missing observations for family11:35
+non-missing observations for family12:33
+non-missing observations for family13:35
+non-missing observations for family14:32
+non-missing observations for family15:29
+non-missing observations for family16:34
+non-missing observations for family17:36
+non-missing observations for family18:35
+non-missing observations for family19:34
+non-missing observations for family20:35
+non-missing observations for family21:36
+non-missing observations for family22:34
+non-missing observations for family23:35
+non-missing observations for family24:30
+non-missing observations for family25:24
+non-missing observations for family26:35
+non-missing observations for family27:35
+non-missing observations for family28:28
+non-missing observations for family29:35
+non-missing observations for family30:34
+non-missing observations for family31:35
+non-missing observations for family32:34
+non-missing observations for family33:34
+non-missing observations for family34:34
+non-missing observations for family35:25
+non-missing observations for family36:34
+non-missing observations for family37:26
+non-missing observations for family38:34
+non-missing observations for family39:35
+non-missing observations for family40:34
+non-missing observations for family41:34
+non-missing observations for family42:36
+non-missing observations for family43:34
+non-missing observations for family44:33
+non-missing observations for family45:31
+non-missing observations for family46:28
+ Over all families the largest # of 

@@ -1,0 +1,1594 @@
+  This is an REML analysis.
+LogLike     -33134.4355
+LogLike      -1992.0729
+LogLike      -1991.5932
+LogLike      -1991.5319
+LogLike      -1991.5215
+LogLike      -1991.5195
+LogLike      -1991.5190
+Multiplier  1  0.3226
+LogLike      -1992.5657
+Multiplier  1  0.2718
+LogLike      -1992.3420
+Multiplier  1  0.2202
+LogLike      -1992.3315
+Multiplier  1  0.2231
+LogLike      -1992.3303
+Multiplier  1  0.2207
+LogLike      -1992.3301
+Multiplier  1  0.2415
+Multiplier  2  0.0293
+LogLike      -1992.4633
+Multiplier  1  0.2383
+Multiplier  2  0.0285
+LogLike      -1992.4456
+Multiplier  1  0.2331
+Multiplier  2  0.0274
+LogLike      -1992.4447
+Multiplier  1  0.2506
+Multiplier  2  0.0598
+Multiplier  3  0.0524
+LogLike      -1992.5894
+Multiplier  1  0.2328
+Multiplier  2  0.0604
+Multiplier  3  0.0481
+LogLike      -1992.5760
+Multiplier  1  0.2302
+Multiplier  2  0.0594
+Multiplier  3  0.0473
+LogLike      -1992.5754
+Multiplier  1  0.2261
+Multiplier  2  0.0246
+Multiplier  3  0.0748
+Multiplier  4  0.3376
+LogLike      -1993.2391
+Multiplier  1  0.2481
+Multiplier  2  0.0291
+Multiplier  3  0.0720
+Multiplier  4  0.3094
+LogLike      -1993.1548
+Multiplier  1  0.2386
+Multiplier  2  0.0326
+Multiplier  3  0.0703
+Multiplier  4  0.2790
+LogLike      -1993.1521
+Multiplier  1  0.2380
+Multiplier  2  0.0329
+Multiplier  3  0.0705
+Multiplier  4  0.2787
+LogLike      -1993.1518
+Multiplier  1  0.1972
+Multiplier  2 -0.0310
+Multiplier  3 -0.0545
+Multiplier  4  0.5250
+Multiplier  5  0.3473
+LogLike      -1993.7516
+Multiplier  1  0.1722
+Multiplier  2 -0.0338
+Multiplier  3 -0.0328
+Multiplier  4  0.5075
+Multiplier  5  0.2671
+LogLike      -1993.6729
+Multiplier  1  0.1676
+Multiplier  2 -0.0304
+Multiplier  3 -0.0262
+Multiplier  4  0.4786
+Multiplier  5  0.2424
+LogLike      -1993.6713
+Multiplier  1  0.1664
+Multiplier  2 -0.0300
+Multiplier  3 -0.0259
+Multiplier  4  0.4766
+Multiplier  5  0.2418
+LogLike      -1993.6712
+Multiplier  1  0.1815
+Multiplier  4  0.4200
+Multiplier  5  0.2034
+LogLike      -1993.6329
+Multiplier  1  0.1798
+Multiplier  4  0.4233
+Multiplier  5  0.2041
+LogLike      -1993.6316
+Multiplier  1  0.1810
+Multiplier  4  0.4245
+Multiplier  5  0.2043
+LogLike      -1993.6315
+Multiplier  1  0.1825
+Multiplier  4  0.4269
+Multiplier  5  0.1967
+Multiplier  3  0.0051
+LogLike      -1993.6325
+Multiplier  1  0.0428
+Multiplier  4  0.5773
+Multiplier  5  0.4623
+Multiplier  3 -0.1994
+Multiplier  6  0.2988
+LogLike      -1994.1991
+Multiplier  1  0.0451
+Multiplier  4  0.5785
+Multiplier  5  0.4490
+Multiplier  3 -0.1862
+Multiplier  6  0.2641
+LogLike      -1994.1472
+Multiplier  1  0.0499
+Multiplier  4  0.5566
+Multiplier  5  0.4306
+Multiplier  3 -0.1756
+Multiplier  6  0.2478
+LogLike      -1994.1454
+Multiplier  1  0.0505
+Multiplier  4  0.5568
+Multiplier  5  0.4300
+Multiplier  3 -0.1754
+Multiplier  6  0.2481
+LogLike      -1994.1452
+Multiplier  1  0.1577
+Multiplier  4  0.4861
+Multiplier  5  0.2059
+Multiplier  6  0.0561
+LogLike      -1993.7477
+Multiplier  1  0.1695
+Multiplier  4  0.4707
+Multiplier  5  0.2026
+Multiplier  6  0.0483
+LogLike      -1993.7384
+Multiplier  1  0.1706
+Multiplier  4  0.4740
+Multiplier  5  0.2042
+Multiplier  6  0.0478
+LogLike      -1993.7379
+Multiplier  1  0.1702
+Multiplier  4  0.4593
+Multiplier  5  0.2029
+Multiplier  6  0.0572
+Multiplier  2  0.0100
+LogLike      -1993.7449
+Multiplier  1  0.1690
+Multiplier  4  0.4609
+Multiplier  5  0.2034
+Multiplier  6  0.0576
+Multiplier  2  0.0103
+LogLike      -1993.7447
+Multiplier  1  0.2064
+Multiplier  4  0.6299
+Multiplier  5  0.2283
+Multiplier  6  0.0246
+Multiplier  2 -0.1040
+Multiplier  7  0.1779
+LogLike      -1994.0018
+Multiplier  1  0.2012
+Multiplier  4  0.6166
+Multiplier  5  0.2194
+Multiplier  6  0.0257
+Multiplier  2 -0.1057
+Multiplier  7  0.1812
+LogLike      -1993.9692
+Multiplier  1  0.1913
+Multiplier  4  0.5975
+Multiplier  5  0.2159
+Multiplier  6  0.0287
+Multiplier  2 -0.0973
+Multiplier  7  0.1695
+LogLike      -1993.9682
+Multiplier  1  0.1903
+Multiplier  4  0.5960
+Multiplier  5  0.2154
+Multiplier  6  0.0291
+Multiplier  2 -0.0967
+Multiplier  7  0.1686
+LogLike      -1993.9681
+Multiplier  1  0.1702
+Multiplier  4  0.4584
+Multiplier  5  0.2014
+Multiplier  6  0.0709
+Multiplier  7  0.0508
+LogLike      -1993.8301
+Multiplier  1  0.1674
+Multiplier  4  0.4731
+Multiplier  5  0.2047
+Multiplier  6  0.0705
+Multiplier  7  0.0488
+LogLike      -1993.8238
+Multiplier  1  0.1717
+Multiplier  4  0.4739
+Multiplier  5  0.2049
+Multiplier  6  0.0700
+Multiplier  7  0.0488
+LogLike      -1993.8233
+Multiplier  1 -0.0495
+Multiplier  4  0.4980
+Multiplier  5  0.3206
+Multiplier  6 -0.1220
+Multiplier  7 -0.0044
+Multiplier  8  0.8448
+LogLike      -1994.3856
+Multiplier  1 -0.0292
+Multiplier  4  0.5016
+Multiplier  5  0.3006
+Multiplier  6 -0.0833
+Multiplier  7  0.0019
+Multiplier  8  0.6795
+LogLike      -1994.2904
+Multiplier  1 -0.0159
+Multiplier  4  0.4896
+Multiplier  5  0.2852
+Multiplier  6 -0.0654
+Multiplier  7  0.0064
+Multiplier  8  0.5946
+LogLike      -1994.2867
+Multiplier  1 -0.0146
+Multiplier  4  0.4895
+Multiplier  5  0.2840
+Multiplier  6 -0.0640
+Multiplier  7  0.0067
+Multiplier  8  0.5895
+LogLike      -1994.2864
+Multiplier  4  0.5114
+Multiplier  5  0.2639
+Multiplier  7  0.0247
+Multiplier  8  0.4547
+LogLike      -1994.2181
+Multiplier  4  0.5163
+Multiplier  5  0.2676
+Multiplier  7  0.0288
+Multiplier  8  0.4554
+LogLike      -1994.2061
+Multiplier  4  0.5183
+Multiplier  5  0.2697
+Multiplier  7  0.0301
+Multiplier  8  0.4574
+LogLike      -1994.2032
+Multiplier  4  0.5196
+Multiplier  5  0.2707
+Multiplier  7  0.0307
+Multiplier  8  0.4587
+LogLike      -1994.2025
+Multiplier  4  0.5063
+Multiplier  5  0.2630
+Multiplier  7  0.0330
+Multiplier  8  0.4037
+Multiplier  1  0.0518
+LogLike      -1994.2207
+Multiplier  4  0.5080
+Multiplier  5  0.2612
+Multiplier  7  0.0312
+Multiplier  8  0.4153
+Multiplier  1  0.0425
+LogLike      -1994.2193
+Multiplier  4  0.5083
+Multiplier  5  0.2613
+Multiplier  7  0.0308
+Multiplier  8  0.4166
+Multiplier  1  0.0392
+LogLike      -1994.2192
+Multiplier  4  0.4343
+Multiplier  5  0.2388
+Multiplier  7  0.0218
+Multiplier  8  0.4908
+Multiplier  1  0.0248
+Multiplier  9  0.8644
+LogLike      -1994.8323
+Multiplier  4  0.4295
+Multiplier  5  0.2368
+Multiplier  7  0.0252
+Multiplier  8  0.4707
+Multiplier  1  0.0280
+Multiplier  9  0.7617
+LogLike      -1994.7525
+Multiplier  4  0.4285
+Multiplier  5  0.2380
+Multiplier  7  0.0261
+Multiplier  8  0.4497
+Multiplier  1  0.0287
+Multiplier  9  0.6806
+LogLike      -1994.7504
+Multiplier  4  0.4276
+Multiplier  5  0.2375
+Multiplier  7  0.0259
+Multiplier  8  0.4513
+Multiplier  1  0.0278
+Multiplier  9  0.6866
+LogLike      -1994.7502
+Multiplier  4 -0.0024
+Multiplier  5  0.2168
+Multiplier  7 -0.3037
+Multiplier  8  0.7913
+Multiplier  1 -0.1113
+Multiplier  9  1.4797
+Multiplier  2  0.2369
+LogLike      -1995.0774
+Multiplier  4  0.0604
+Multiplier  5  0.2256
+Multiplier  7 -0.2756
+Multiplier  8  0.7423
+Multiplier  1 -0.1004
+Multiplier  9  1.3882
+Multiplier  2  0.2145
+LogLike      -1995.0589
+Multiplier  4  0.0840
+Multiplier  5  0.2266
+Multiplier  7 -0.2574
+Multiplier  8  0.7190
+Multiplier  1 -0.0901
+Multiplier  9  1.3327
+Multiplier  2  0.2015
+LogLike      -1995.0581
+Multiplier  4  0.3992
+Multiplier  5  0.2489
+Multiplier  8  0.4923
+Multiplier  9  0.7638
+Multiplier  2  0.0303
+LogLike      -1994.8334
+Multiplier  4  0.3813
+Multiplier  5  0.2447
+Multiplier  8  0.5107
+Multiplier  9  0.7789
+Multiplier  2  0.0319
+LogLike      -1994.8220
+Multiplier  4  0.3755
+Multiplier  5  0.2428
+Multiplier  8  0.5108
+Multiplier  9  0.7842
+Multiplier  2  0.0323
+LogLike      -1994.8211
+Multiplier  4  0.3722
+Multiplier  5  0.2405
+Multiplier  8  0.4986
+Multiplier  9  0.7803
+Multiplier  2  0.0320
+Multiplier  1  0.0118
+LogLike      -1994.8219
+Multiplier  4 -0.1752
+Multiplier  5  0.1953
+Multiplier  8  0.7376
+Multiplier  9  1.0627
+Multiplier  2 -0.2942
+Multiplier  1 -0.0784
+Multiplier 10  1.1767
+LogLike      -1995.6610
+Multiplier  4 -0.1781
+Multiplier  5  0.1925
+Multiplier  8  0.7316
+Multiplier  9  1.0743
+Multiplier  2 -0.3144
+Multiplier  1 -0.0873
+Multiplier 10  1.2124
+LogLike      -1995.5456
+Multiplier  4 -0.1157
+Multiplier  5  0.1945
+Multiplier  8  0.6719
+Multiplier  9  1.0066
+Multiplier  2 -0.2694
+Multiplier  1 -0.0675
+Multiplier 10  1.0542
+LogLike      -1995.5421
+Multiplier  4 -0.1193
+Multiplier  5  0.1937
+Multiplier  8  0.6756
+Multiplier  9  1.0095
+Multiplier  2 -0.2719
+Multiplier  1 -0.0676
+Multiplier 10  1.0620
+LogLike      -1995.5418
+Multiplier  5  0.2093
+Multiplier  8  0.6149
+Multiplier  9  1.1510
+Multiplier 10  0.4371
+Multiplier  7 -0.1387
+LogLike      -1995.3197
+Multiplier  5  0.2017
+Multiplier  8  0.6092
+Multiplier  9  1.1511
+Multiplier 10  0.4377
+Multiplier  7 -0.1382
+LogLike      -1995.2973
+Multiplier  5  0.2003
+Multiplier  8  0.6098
+Multiplier  9  1.1525
+Multiplier 10  0.4383
+Multiplier  7 -0.1402
+LogLike      -1995.2929
+Multiplier  5  0.1989
+Multiplier  8  0.6067
+Multiplier  9  1.1506
+Multiplier 10  0.4370
+Multiplier  7 -0.1398
+LogLike      -1995.2919
+Multiplier  5  0.1984
+Multiplier  8  0.6062
+Multiplier  9  1.1503
+Multiplier 10  0.4365
+Multiplier  7 -0.1400
+LogLike      -1995.2916
+Multiplier  5  0.1732
+Multiplier  8  0.5601
+Multiplier  9  1.0483
+Multiplier 10  0.2848
+LogLike      -1994.7737
+Multiplier  5  0.1759
+Multiplier  8  0.5545
+Multiplier  9  1.0445
+Multiplier 10  0.2742
+LogLike      -1994.7468
+Multiplier  5  0.1762
+Multiplier  8  0.5618
+Multiplier  9  1.0453
+Multiplier 10  0.2757
+LogLike      -1994.7438
+Multiplier  5  0.1764
+Multiplier  8  0.5612
+Multiplier  9  1.0462
+Multiplier 10  0.2758
+LogLike      -1994.7433
+Multiplier  5  0.2455
+Multiplier  8  0.5325
+Multiplier  9  0.8445
+Multiplier 10  0.1444
+Multiplier  4  0.3148
+LogLike      -1995.0233
+Multiplier  5  0.2395
+Multiplier  8  0.5489
+Multiplier  9  0.8599
+Multiplier 10  0.1670
+Multiplier  4  0.2801
+LogLike      -1995.0006
+Multiplier  5  0.2334
+Multiplier  8  0.5448
+Multiplier  9  0.8666
+Multiplier 10  0.1724
+Multiplier  4  0.2572
+LogLike      -1994.9996
+Multiplier  5 -0.0325
+Multiplier  8  0.5262
+Multiplier  9  0.8082
+Multiplier 10  0.0938
+Multiplier  4  0.2856
+Multiplier 11  0.6024
+LogLike      -1995.2019
+Multiplier  5  0.0099
+Multiplier  8  0.5163
+Multiplier  9  0.8608
+Multiplier 10  0.0960
+Multiplier  4  0.2709
+Multiplier 11  0.4590
+LogLike      -1995.1592
+Multiplier  5  0.0311
+Multiplier  8  0.5042
+Multiplier  9  0.8413
+Multiplier 10  0.1026
+Multiplier  4  0.2603
+Multiplier 11  0.4012
+LogLike      -1995.1575
+Multiplier  5  0.0334
+Multiplier  8  0.5040
+Multiplier  9  0.8398
+Multiplier 10  0.1033
+Multiplier  4  0.2597
+Multiplier 11  0.3951
+LogLike      -1995.1574
+Multiplier  5  0.0058
+Multiplier  8  0.4989
+Multiplier  9  0.8420
+Multiplier 10  0.1128
+Multiplier  4  0.2488
+Multiplier 11  0.4260
+Multiplier  3  0.0084
+LogLike      -1995.1583
+Multiplier  5  0.0090
+Multiplier  8  0.5004
+Multiplier  9  0.8424
+Multiplier 10  0.1129
+Multiplier  4  0.2490
+Multiplier 11  0.4221
+Multiplier  3  0.0078
+Multiplier  6 -0.0006
+LogLike      -1995.1582
+Multiplier  5  0.0114
+Multiplier  8  0.5001
+Multiplier  9  0.8417
+Multiplier 10  0.1121
+Multiplier  4  0.2504
+Multiplier 11  0.4201
+Multiplier  3  0.0069
+LogLike      -1995.1582
+Multiplier  5 -0.0755
+Multiplier  8  0.3764
+Multiplier  9  0.7661
+Multiplier 10  0.0402
+Multiplier  4  0.3948
+Multiplier 11  0.6014
+Multiplier  3 -0.0859
+Multiplier 12  0.3373
+LogLike      -1995.3357
+Multiplier  5 -0.0170
+Multiplier  8  0.4014
+Multiplier  9  0.7877
+Multiplier 10  0.0373
+Multiplier  4  0.3901
+Multiplier 11  0.5118
+Multiplier  3 -0.0882
+Multiplier 12  0.2935
+LogLike      -1995.3033
+Multiplier  5 -0.0076
+Multiplier  8  0.4146
+Multiplier  9  0.7894
+Multiplier 10  0.0452
+Multiplier  4  0.3675
+Multiplier 11  0.4896
+Multiplier  3 -0.0797
+Multiplier 12  0.2596
+LogLike      -1995.3019
+Multiplier  5 -0.0065
+Multiplier  8  0.4163
+Multiplier  9  0.7915
+Multiplier 10  0.0455
+Multiplier  4  0.3671
+Multiplier 11  0.4877
+Multiplier  3 -0.0798
+Multiplier 12  0.2593
+LogLike      -1995.3017
+Multiplier  8  0.4850
+Multiplier  9  0.8252
+Multiplier 10  0.1304
+Multiplier  4  0.2662
+Multiplier 11  0.4176
+Multiplier 12  0.0769
+LogLike      -1995.2185
+Multiplier  8  0.4807
+Multiplier  9  0.8358
+Multiplier 10  0.1352
+Multiplier  4  0.2642
+Multiplier 11  0.4188
+Multiplier 12  0.0777
+LogLike      -1995.2138
+Multiplier  8  0.4778
+Multiplier  9  0.8312
+Multiplier 10  0.1335
+Multiplier  4  0.2711
+Multiplier 11  0.4198
+Multiplier 12  0.0803
+LogLike      -1995.2133
+Multiplier  8  0.6058
+Multiplier  9  0.5277
+Multiplier 10 -0.0419
+Multiplier  4 -0.0723
+Multiplier 11  0.3004
+Multiplier 12  0.0615
+Multiplier 13  1.6243
+LogLike      -1995.7323
+Multiplier  8  0.5815
+Multiplier  9  0.5300
+Multiplier 10 -0.0592
+Multiplier  4 -0.0671
+Multiplier 11  0.3039
+Multiplier 12  0.0582
+Multiplier 13  1.6242
+LogLike      -1995.6695
+Multiplier  8  0.5579
+Multiplier  9  0.5275
+Multiplier 10 -0.0465
+Multiplier  4 -0.0297
+Multiplier 11  0.3162
+Multiplier 12  0.0559
+Multiplier 13  1.4514
+LogLike      -1995.6677
+Multiplier  8  0.5590
+Multiplier  9  0.5284
+Multiplier 10 -0.0469
+Multiplier  4 -0.0315
+Multiplier 11  0.3141
+Multiplier 12  0.0574
+Multiplier 13  1.4580
+LogLike      -1995.6675
+Multiplier  8  0.5492
+Multiplier  9  0.5817
+Multiplier 11  0.3250
+Multiplier 12  0.0701
+Multiplier 13  1.2549
+Multiplier  7 -0.0048
+LogLike      -1995.6571
+Multiplier  8  0.5505
+Multiplier  9  0.5818
+Multiplier 11  0.3231
+Multiplier 12  0.0705
+Multiplier 13  1.2588
+Multiplier  7 -0.0045
+LogLike      -1995.6566
+Multiplier  8  0.5504
+Multiplier  9  0.5804
+Multiplier 11  0.3217
+Multiplier 12  0.0735
+Multiplier 13  1.2592
+LogLike      -1995.6557
+Multiplier  8  0.5596
+Multiplier  9  0.5759
+Multiplier 11  0.3569
+Multiplier 12  0.0785
+Multiplier 13  1.2337
+Multiplier 14  0.0264
+LogLike      -1995.6757
+Multiplier  8  0.5489
+Multiplier  9  0.6047
+Multiplier 11  0.3352
+Multiplier 12  0.0836
+Multiplier 13  1.2378
+Multiplier 14  0.0258
+LogLike      -1995.6661
+Multiplier  8  0.5437
+Multiplier  9  0.5942
+Multiplier 11  0.3311
+Multiplier 12  0.0837
+Multiplier 13  1.2328
+Multiplier 14  0.0249
+LogLike      -1995.6656
+Multiplier  8  0.4723
+Multiplier  9  0.7021
+Multiplier 11  0.3821
+Multiplier 12 -0.0673
+Multiplier 13  1.2460
+Multiplier 14 -0.0055
+Multiplier 15  0.4345
+LogLike      -1995.7345
+Multiplier  8  0.4744
+Multiplier  9  0.7111
+Multiplier 11  0.3642
+Multiplier 12 -0.0428
+Multiplier 13  1.2333
+Multiplier 14 -0.0056
+Multiplier 15  0.3613
+LogLike      -1995.7189
+Multiplier  8  0.4757
+Multiplier  9  0.6944
+Multiplier 11  0.3606
+Multiplier 12 -0.0351
+Multiplier 13  1.2164
+Multiplier 14 -0.0024
+Multiplier 15  0.3313
+LogLike      -1995.7181
+Multiplier  8  0.4803
+Multiplier  9  0.6687
+Multiplier 11  0.3496
+Multiplier 13  1.2115
+Multiplier 15  0.2701
+Multiplier  4  0.0140
+LogLike      -1995.7148
+Multiplier  8  0.4823
+Multiplier  9  0.6647
+Multiplier 11  0.3498
+Multiplier 13  1.2192
+Multiplier 15  0.2661
+Multiplier  4  0.0123
+LogLike      -1995.7145
+Multiplier  8  0.4852
+Multiplier  9  0.6671
+Multiplier 11  0.3521
+Multiplier 13  1.2243
+Multiplier 15  0.2608
+Multiplier  4  0.0051
+Multiplier 14  0.0054
+LogLike      -1995.7149
+Multiplier  8  0.5484
+Multiplier  9  0.6327
+Multiplier 11  0.4471
+Multiplier 13  1.5995
+Multiplier 15  0.1924
+Multiplier  4 -0.1637
+Multiplier 14 -0.1636
+Multiplier 16  0.4499
+LogLike      -1995.7843
+Multiplier  8  0.5261
+Multiplier  9  0.6405
+Multiplier 11  0.4206
+Multiplier 13  1.5472
+Multiplier 15  0.2071
+Multiplier  4 -0.1367
+Multiplier 14 -0.1541
+Multiplier 16  0.4197
+LogLike      -1995.7742
+Multiplier  8  0.5187
+Multiplier  9  0.6319
+Multiplier 11  0.4144
+Multiplier 13  1.5339
+Multiplier 15  0.2063
+Multiplier  4 -0.1360
+Multiplier 14 -0.1506
+Multiplier 16  0.4102
+LogLike      -1995.7738
+Multiplier  8  0.4763
+Multiplier  9  0.6589
+Multiplier 11  0.3683
+Multiplier 13  1.2104
+Multiplier 15  0.2648
+Multiplier 16  0.0580
+LogLike      -1995.7255
+Multiplier  8  0.4811
+Multiplier  9  0.6759
+Multiplier 11  0.3728
+Multiplier 13  1.2087
+Multiplier 15  0.2613
+Multiplier 16  0.0535
+LogLike      -1995.7242
+Multiplier  8  0.4826
+Multiplier  9  0.6761
+Multiplier 11  0.3719
+Multiplier 13  1.2118
+Multiplier 15  0.2622
+Multiplier 16  0.0520
+LogLike      -1995.7241
+Multiplier  8  0.4553
+Multiplier  9 -0.7334
+Multiplier 11  0.4642
+Multiplier 13  0.6776
+Multiplier 15  0.1248
+Multiplier 16  0.1784
+Multiplier 17  3.3055
+LogLike      -1996.0161
+Multiplier  8  0.4577
+Multiplier  9 -0.4630
+Multiplier 11  0.4395
+Multiplier 13  0.7052
+Multiplier 15  0.1368
+Multiplier 16  0.1703
+Multiplier 17  2.6875
+LogLike      -1995.9819
+Multiplier  8  0.4588
+Multiplier  9 -0.3890
+Multiplier 11  0.4297
+Multiplier 13  0.7186
+Multiplier 15  0.1417
+Multiplier 16  0.1614
+Multiplier 17  2.4636
+LogLike      -1995.9811
+Multiplier  8  0.4669
+Multiplier 11  0.4183
+Multiplier 13  0.8407
+Multiplier 15  0.1829
+Multiplier 16  0.1660
+Multiplier 17  1.6861
+Multiplier 14 -0.0150
+LogLike      -1995.9563
+Multiplier  8  0.4680
+Multiplier 11  0.4176
+Multiplier 13  0.8552
+Multiplier 15  0.1823
+Multiplier 16  0.1607
+Multiplier 17  1.6856
+Multiplier 14 -0.0144
+LogLike      -1995.9538
+Multiplier  8  0.4661
+Multiplier 11  0.4180
+Multiplier 13  0.8592
+Multiplier 15  0.1828
+Multiplier 16  0.1617
+Multiplier 17  1.6881
+Multiplier 14 -0.0152
+LogLike      -1995.9534
+Multiplier  8  0.4658
+Multiplier 11  0.4116
+Multiplier 13  0.8504
+Multiplier 15  0.1830
+Multiplier 16  0.1317
+Multiplier 17  1.7012
+LogLike      -1995.9527
+Multiplier  8  0.3701
+Multiplier 11  0.3421
+Multiplier 13  0.8236
+Multiplier 15  0.3076
+Multiplier 16  0.1532
+Multiplier 17  1.7535
+Multiplier 18  0.1379
+LogLike      -1995.9707
+Multiplier  8  0.3952
+Multiplier 11  0.3583
+Multiplier 13  0.8185
+Multiplier 15  0.2650
+Multiplier 16  0.1453
+Multiplier 17  1.7985
+Multiplier 18  0.0903
+LogLike      -1995.9614
+Multiplier  8  0.3939
+Multiplier 11  0.3565
+Multiplier 13  0.8133
+Multiplier 15  0.2594
+Multiplier 16  0.1426
+Multiplier 17  1.7768
+Multiplier 18  0.0853
+LogLike      -1995.9610
+Multiplier  8  0.3273
+Multiplier 11  0.2807
+Multiplier 13  0.7710
+Multiplier 15  0.1915
+Multiplier 16  0.1990
+Multiplier 17  1.7168
+Multiplier 18  0.2047
+Multiplier 19  0.3817
+LogLike      -1995.9983
+Multiplier  8  0.3459
+Multiplier 11  0.2900
+Multiplier 13  0.7624
+Multiplier 15  0.1612
+Multiplier 16  0.1959
+Multiplier 17  1.7745
+Multiplier 18  0.1734
+Multiplier 19  0.3590
+LogLike      -1995.9851
+Multiplier  8  0.3482
+Multiplier 11  0.2946
+Multiplier 13  0.7605
+Multiplier 15  0.1674
+Multiplier 16  0.1884
+Multiplier 17  1.7647
+Multiplier 18  0.1636
+Multiplier 19  0.3154
+LogLike      -1995.9842
+Multiplier  8  0.3422
+Multiplier 11  0.2748
+Multiplier 13  0.7402
+Multiplier 15  0.1584
+Multiplier 16  0.1422
+Multiplier 17  1.7804
+Multiplier 18  0.1727
+Multiplier 19  0.3551
+Multiplier 14  0.0253
+LogLike      -1995.9855
+Multiplier  8  0.3424
+Multiplier 11  0.2756
+Multiplier 13  0.7392
+Multiplier 15  0.1594
+Multiplier 16  0.1417
+Multiplier 17  1.7869
+Multiplier 18  0.1725
+Multiplier 19  0.3516
+Multiplier 14  0.0251
+LogLike      -1995.9854
+Multiplier  8  0.3671
+Multiplier 11  0.2425
+Multiplier 13  1.0615
+Multiplier 15  0.1379
+Multiplier 16  0.0172
+Multiplier 17  1.2235
+Multiplier 18  0.2260
+Multiplier 19  0.4576
+Multiplier 14 -0.0455
+Multiplier 20  0.6759
+LogLike      -1996.0180
+Multiplier  8  0.3624
+Multiplier 11  0.2415
+Multiplier 13  0.9690
+Multiplier 15  0.1097
+Multiplier 16  0.0409
+Multiplier 17  1.4193
+Multiplier 18  0.2017
+Multiplier 19  0.4712
+Multiplier 14 -0.0200
+Multiplier 20  0.4898
+LogLike      -1996.0088
+Multiplier  8  0.3627
+Multiplier 11  0.2518
+Multiplier 13  0.9570
+Multiplier 15  0.1157
+Multiplier 16  0.0523
+Multiplier 17  1.4221
+Multiplier 18  0.1900
+Multiplier 19  0.4376
+Multiplier 14 -0.0218
+Multiplier 20  0.4616
+LogLike      -1996.0083
+Multiplier  8  0.3553
+Multiplier 11  0.2407
+Multiplier 13  0.9217
+Multiplier 15  0.1129
+Multiplier 16  0.0302
+Multiplier 17  1.4691
+Multiplier 18  0.1944
+Multiplier 19  0.4579
+Multiplier 20  0.4165
+LogLike      -1996.0072
+Multiplier  8  0.3560
+Multiplier 11  0.2409
+Multiplier 13  0.9228
+Multiplier 15  0.1130
+Multiplier 16  0.0271
+Multiplier 17  1.4692
+Multiplier 18  0.1941
+Multiplier 19  0.4567
+Multiplier 20  0.4225
+LogLike      -1996.0072
+Multiplier  8  0.1960
+Multiplier 11  0.1609
+Multiplier 13  0.9866
+Multiplier 15  0.1683
+Multiplier 16 -0.0616
+Multiplier 17  1.3831
+Multiplier 18  0.1152
+Multiplier 19  0.6527
+Multiplier 20  0.6952
+Multiplier 21  0.3232
+LogLike      -1996.0308
+Multiplier  8  0.2552
+Multiplier 11  0.1750
+Multiplier 13  0.9838
+Multiplier 15  0.1271
+Multiplier 16 -0.0657
+Multiplier 17  1.4088
+Multiplier 18  0.1318
+Multiplier 19  0.6080
+Multiplier 20  0.6697
+Multiplier 21  0.2197
+LogLike      -1996.0207
+Multiplier  8  0.2624
+Multiplier 11  0.1813
+Multiplier 13  0.9765
+Multiplier 15  0.1316
+Multiplier 16 -0.0595
+Multiplier 17  1.3979
+Multiplier 18  0.1293
+Multiplier 19  0.5738
+Multiplier 20  0.6413
+Multiplier 21  0.2050
+LogLike      -1996.0202
+Multiplier  8  0.2680
+Multiplier 11  0.1874
+Multiplier 13  0.9757
+Multiplier 15  0.1294
+Multiplier 17  1.4802
+Multiplier 18  0.1366
+Multiplier 19  0.5573
+Multiplier 20  0.5226
+Multiplier 21  0.1886
+Multiplier  4 -0.0254
+LogLike      -1996.0197
+Multiplier  8  0.2709
+Multiplier 11  0.2015
+Multiplier 13  0.9235
+Multiplier 15  0.1405
+Multiplier 17  1.4858
+Multiplier 18  0.1412
+Multiplier 19  0.5367
+Multiplier 20  0.5081
+Multiplier 21  0.1668
+LogLike      -1996.0186
+Multiplier  8  0.2724
+Multiplier 11  0.2019
+Multiplier 13  0.9247
+Multiplier 15  0.1394
+Multiplier 17  1.4813
+Multiplier 18  0.1430
+Multiplier 19  0.5366
+Multiplier 20  0.5125
+Multiplier 21  0.1643
+LogLike      -1996.0185
+Multiplier  8 -0.2359
+Multiplier 11  0.0919
+Multiplier 13  0.8262
+Multiplier 15  0.3402
+Multiplier 17  1.5990
+Multiplier 18 -0.2396
+Multiplier 19  0.7955
+Multiplier 20  0.4797
+Multiplier 21  0.4859
+Multiplier 22  0.6783
+LogLike      -1996.0490
+Multiplier  8 -0.1277
+Multiplier 11  0.1111
+Multiplier 13  0.8247
+Multiplier 15  0.2728
+Multiplier 17  1.6346
+Multiplier 18 -0.1816
+Multiplier 19  0.7624
+Multiplier 20  0.4666
+Multiplier 21  0.4088
+Multiplier 22  0.5569
+LogLike      -1996.0350
+Multiplier  8 -0.0532
+Multiplier 11  0.1353
+Multiplier 13  0.8349
+Multiplier 15  0.2551
+Multiplier 17  1.6077
+Multiplier 18 -0.1335
+Multiplier 19  0.6799
+Multiplier 20  0.4618
+Multiplier 21  0.3655
+Multiplier 22  0.4530
+LogLike      -1996.0345
+Multiplier 11  0.1517
+Multiplier 13  0.8356
+Multiplier 15  0.2542
+Multiplier 17  1.5879
+Multiplier 19  0.6823
+Multiplier 20  0.4855
+Multiplier 21  0.2791
+Multiplier 22  0.3342
+Multiplier  5 -0.0185
+LogLike      -1996.0318
+Multiplier 11  0.1553
+Multiplier 13  0.8327
+Multiplier 15  0.2527
+Multiplier 17  1.5905
+Multiplier 19  0.6860
+Multiplier 20  0.4887
+Multiplier 21  0.2790
+Multiplier 22  0.3335
+Multiplier  5 -0.0203
+LogLike      -1996.0317
+Multiplier 11  0.1493
+Multiplier 13  0.8634
+Multiplier 15  0.2123
+Multiplier 17  1.5617
+Multiplier 19  0.6389
+Multiplier 20  0.4873
+Multiplier 21  0.2647
+Multiplier 22  0.2806
+Multiplier  8  0.0691
+LogLike      -1996.0317
+Multiplier 11  0.1057
+Multiplier 13  0.4441
+Multiplier 15  0.1829
+Multiplier 17  0.8971
+Multiplier 19  0.7355
+Multiplier 20  0.6265
+Multiplier 21  0.4360
+Multiplier 22  0.2575
+Multiplier  8  0.0044
+Multiplier 23  1.7529
+LogLike      -1996.0734
+Multiplier 11  0.1045
+Multiplier 13  0.4857
+Multiplier 15  0.1453
+Multiplier 17  1.0146
+Multiplier 19  0.7597
+Multiplier 20  0.6002
+Multiplier 21  0.3955
+Multiplier 22  0.2405
+Multiplier  8  0.0370
+Multiplier 23  1.5130
+LogLike      -1996.0652
+Multiplier 11  0.1118
+Multiplier 13  0.4973
+Multiplier 15  0.1413
+Multiplier 17  1.0071
+Multiplier 19  0.7358
+Multiplier 20  0.5939
+Multiplier 21  0.3865
+Multiplier 22  0.2289
+Multiplier  8  0.0475
+Multiplier 23  1.4524
+LogLike      -1996.0650
+Multiplier 11  0.1590
+Multiplier 13 -0.0426
+Multiplier 15  0.1893
+Multiplier 17  0.7319
+Multiplier 19  0.6774
+Multiplier 20  0.5596
+Multiplier 21  0.3441
+Multiplier 22  0.2802
+Multiplier  8 -0.0018
+Multiplier 23  2.3595
+Multiplier  4  0.1489
+LogLike      -1996.0835
+Multiplier 11  0.1575
+Multiplier 13 -0.0244
+Multiplier 15  0.1760
+Multiplier 17  0.7120
+Multiplier 19  0.6930
+Multiplier 20  0.5829
+Multiplier 21  0.3440
+Multiplier 22  0.2785
+Multiplier  8  0.0072
+Multiplier 23  2.3397
+Multiplier  4  0.1430
+LogLike      -1996.0821
+Multiplier 11  0.1497
+Multiplier 13  0.0114
+Multiplier 15  0.1720
+Multiplier 17  0.7347
+Multiplier 19  0.7063
+Multiplier 20  0.5858
+Multiplier 21  0.3473
+Multiplier 22  0.2812
+Multiplier  8  0.0055
+Multiplier 23  2.2709
+Multiplier  4  0.1319
+LogLike      -1996.0820
+Multiplier 11  0.1501
+Multiplier 13 -0.0110
+Multiplier 15  0.1706
+Multiplier 17  0.7404
+Multiplier 19  0.7063
+Multiplier 20  0.5653
+Multiplier 21  0.3440
+Multiplier 22  0.2837
+Multiplier  8  0.0049
+Multiplier 23  2.3041
+Multiplier  4  0.1327
+Multiplier 14  0.0048
+LogLike      -1996.0821
+Multiplier 11  0.1493
+Multiplier 15  0.1705
+Multiplier 17  0.7433
+Multiplier 19  0.7085
+Multiplier 20  0.5713
+Multiplier 21  0.3456
+Multiplier 22  0.2831
+Multiplier  8  0.0050
+Multiplier 23  2.2828
+Multiplier  4  0.1312
+Multiplier 14  0.0037
+LogLike      -1996.0821
+Multiplier 11  0.1181
+Multiplier 15  0.1737
+Multiplier 17  1.3294
+Multiplier 19  0.8683
+Multiplier 20  0.7404
+Multiplier 21  0.3927
+Multiplier 22  0.2920
+Multiplier  8 -0.0187
+Multiplier 23  1.7111
+Multiplier  4 -0.1246
+Multiplier 14 -0.2495
+Multiplier 24  0.2842
+LogLike      -1996.1025
+Multiplier 11  0.1260
+Multiplier 15  0.1159
+Multiplier 17  1.5315
+Multiplier 19  0.8650
+Multiplier 20  0.6825
+Multiplier 21  0.3528
+Multiplier 22  0.2604
+Multiplier  8  0.0313
+Multiplier 23  1.5795
+Multiplier  4 -0.1756
+Multiplier 14 -0.2693
+Multiplier 24  0.3250
+LogLike      -1996.0943
+Multiplier 11  0.1378
+Multiplier 15  0.1150
+Multiplier 17  1.4617
+Multiplier 19  0.8169
+Multiplier 20  0.6776
+Multiplier 21  0.3495
+Multiplier 22  0.2357
+Multiplier  8  0.0522
+Multiplier 23  1.6486
+Multiplier  4 -0.1631
+Multiplier 14 -0.2590
+Multiplier 24  0.3103
+LogLike      -1996.0939
+Multiplier 11  0.1335
+Multiplier 15  0.1226
+Multiplier 17  1.1385
+Multiplier 19  0.7389
+Multiplier 20  0.3515
+Multiplier 21  0.3180
+Multiplier 22  0.2834
+Multiplier  8  0.0351
+Multiplier 23  2.0551
+Multiplier 24  0.0756
+LogLike      -1996.0787
+Multiplier 11  0.1300
+Multiplier 15  0.1219
+Multiplier 17  1.1292
+Multiplier 19  0.7577
+Multiplier 20  0.3530
+Multiplier 21  0.3189
+Multiplier 22  0.2820
+Multiplier  8  0.0358
+Multiplier 23  2.0686
+Multiplier 24  0.0734
+LogLike      -1996.0782
+Multiplier 11  0.1468
+Multiplier 15  0.1658
+Multiplier 17  0.8859
+Multiplier 19  0.7173
+Multiplier 20  0.5062
+Multiplier 21  0.3385
+Multiplier 22  0.2864
+Multiplier  8  0.0069
+Multiplier 23  2.1677
+Multiplier 24  0.0234
+Multiplier  4  0.0972
+LogLike      -1996.0834
+Multiplier 11  0.1499
+Multiplier 15  0.1615
+Multiplier 17  0.8642
+Multiplier 19  0.7119
+Multiplier 20  0.5079
+Multiplier 21  0.3318
+Multiplier 22  0.2822
+Multiplier  8  0.0165
+Multiplier 23  2.1913
+Multiplier 24  0.0234
+Multiplier  4  0.0974
+LogLike      -1996.0832
+Multiplier 11  0.0945
+Multiplier 15  0.1684
+Multiplier 17  0.8094
+Multiplier 19  0.8344
+Multiplier 20  0.5631
+Multiplier 21  0.4001
+Multiplier 22  0.3940
+Multiplier  8 -0.1131
+Multiplier 23  2.2783
+Multiplier 24  0.0180
+Multiplier  4  0.1104
+Multiplier 25  0.0428
+LogLike      -1996.0913
+Multiplier 11  0.1236
+Multiplier 15  0.1385
+Multiplier 17  0.9320
+Multiplier 19  0.7873
+Multiplier 20  0.4934
+Multiplier 21  0.3446
+Multiplier 22  0.3270
+Multiplier  8 -0.0253
+Multiplier 23  2.1846
+Multiplier 24  0.0331
+Multiplier  4  0.0848
+Multiplier 25  0.0213
+LogLike      -1996.0841
+Multiplier 11  0.1257
+Multiplier 15  0.1261
+Multiplier 17  0.9025
+Multiplier 19  0.7678
+Multiplier 20  0.4908
+Multiplier 21  0.3447
+Multiplier 22  0.3128
+Multiplier  8 -0.0167
+Multiplier 23  2.2214
+Multiplier 24  0.0325
+Multiplier  4  0.0814
+Multiplier 25  0.0264
+LogLike      -1996.0839
+Multiplier 11  0.1347
+Multiplier 15  0.1269
+Multiplier 17  0.8934
+Multiplier 19  0.7498
+Multiplier 20  0.4867
+Multiplier 21  0.3360
+Multiplier 22  0.3001
+Multiplier 23  2.2261
+Multiplier 24  0.0320
+Multiplier  4  0.0828
+Multiplier 25  0.0228
+LogLike      -1996.0838
+Multiplier 11  0.1202
+Multiplier 15  0.1842
+Multiplier 17  0.5865
+Multiplier 19  0.3770
+Multiplier 20  0.6487
+Multiplier 21  0.1636
+Multiplier 22  0.4782
+Multiplier 23  2.7017
+Multiplier 24 -0.0227
+Multiplier  4  0.1535
+Multiplier 25  0.0849
+Multiplier 26  1.1866
+LogLike      -1996.0990
+Multiplier 11  0.1193
+Multiplier 15  0.1594
+Multiplier 17  0.7466
+Multiplier 19  0.5479
+Multiplier 20  0.5495
+Multiplier 21  0.2431
+Multiplier 22  0.3894
+Multiplier 23  2.5446
+Multiplier 24  0.0043
+Multiplier  4  0.1136
+Multiplier 25  0.0568
+Multiplier 26  0.5647
+LogLike      -1996.0928
+Multiplier 11  0.1196
+Multiplier 15  0.1484
+Multiplier 17  0.7480
+Multiplier 19  0.5548
+Multiplier 20  0.5433
+Multiplier 21  0.2523
+Multiplier 22  0.3748
+Multiplier 23  2.5219
+Multiplier 24  0.0074
+Multiplier  4  0.1072
+Multiplier 25  0.0577
+Multiplier 26  0.5301
+LogLike      -1996.0927
+Multiplier 11  0.1407
+Multiplier 15  0.1430
+Multiplier 17  0.7369
+Multiplier 19  0.5124
+Multiplier 20  0.5343
+Multiplier 21  0.2286
+Multiplier 22  0.3470
+Multiplier 23  2.5267
+Multiplier 24  0.0072
+Multiplier  4  0.1085
+Multiplier 25  0.0510
+Multiplier 26  0.5520
+Multiplier  8  0.0428
+LogLike      -1996.0929
+Multiplier 11 -0.7502
+Multiplier 15 -1.2206
+Multiplier 17 -0.4042
+Multiplier 19 -2.8341
+Multiplier 20  0.7797
+Multiplier 21  0.4072
+Multiplier 22  1.2050
+Multiplier 23  3.6172
+Multiplier 24 -0.0620
+Multiplier  4  0.2062
+Multiplier 25 -1.3769
+Multiplier 26  4.8916
+Multiplier  8 -0.3917
+Multiplier 27  2.6867
+LogLike      -1996.1719
+Multiplier 11 -0.9089
+Multiplier 15 -1.6212
+Multiplier 17 -0.3543
+Multiplier 19 -3.5141
+Multiplier 20  0.6626
+Multiplier 21  0.4366
+Multiplier 22  1.2726
+Multiplier 23  3.6273
+Multiplier 24 -0.0355
+Multiplier  4  0.1669
+Multiplier 25 -1.7169
+Multiplier 26  5.3921
+Multiplier  8 -0.3895
+Multiplier 27  3.2914
+LogLike      -1996.1643
+Multiplier 11 -0.8666
+Multiplier 15 -1.5693
+Multiplier 17 -0.3154
+Multiplier 19 -3.3605
+Multiplier 20  0.6513
+Multiplier 21  0.4294
+Multiplier 22  1.2321
+Multiplier 23  3.5733
+Multiplier 24 -0.0317
+Multiplier  4  0.1608
+Multiplier 25 -1.6433
+Multiplier 26  5.1919
+Multiplier  8 -0.3696
+Multiplier 27  3.1626
+LogLike      -1996.1642
+Multiplier 20  0.5669
+Multiplier 21  0.1651
+Multiplier 22  0.5258
+Multiplier 23  3.7178
+Multiplier  4  0.0804
+Multiplier 26  1.5042
+Multiplier 27  0.2490
+LogLike      -1996.0419
+Multiplier 20  0.5752
+Multiplier 21  0.1809
+Multiplier 22  0.5029
+Multiplier 23  3.7374
+Multiplier  4  0.0814
+Multiplier 26  1.5281
+Multiplier 27  0.2542
+LogLike      -1996.0384
+Multiplier 20  0.5770
+Multiplier 21  0.1935
+Multiplier 22  0.4876
+Multiplier 23  3.7522
+Multiplier  4  0.0793
+Multiplier 26  1.5174
+Multiplier 27  0.2539
+LogLike      -1996.0381
+Multiplier 20  0.6018
+Multiplier 21  0.1948
+Multiplier 22  0.4747
+Multiplier 23  3.6575
+Multiplier  4  0.1014
+Multiplier 26  1.4314
+Multiplier 27  0.2395
+Multiplier  5  0.0288
+LogLike      -1996.0445
+Multiplier 20  0.5981
+Multiplier 21  0.1958
+Multiplier 22  0.4740
+Multiplier 23  3.6597
+Multiplier  4  0.1028
+Multiplier 26  1.4362
+Multiplier 27  0.2460
+Multiplier  5  0.0223
+LogLike      -1996.0439
+Multiplier 20  0.5210
+Multiplier 21  0.2110
+Multiplier 22  0.4674
+Multiplier 23  3.3795
+Multiplier  4  0.1115
+Multiplier 26  1.3612
+Multiplier 27  0.2551
+Multiplier  5  0.0127
+Multiplier  9  0.2034
+LogLike      -1996.0664
+Multiplier 20  0.5221
+Multiplier 21  0.2048
+Multiplier 22  0.4762
+Multiplier 23  3.4188
+Multiplier  4  0.1067
+Multiplier 26  1.3628
+Multiplier 27  0.2484
+Multiplier  5  0.0154
+Multiplier  9  0.1750
+LogLike      -1996.0647
+Multiplier 20  0.5234
+Multiplier 21  0.2019
+Multiplier 22  0.4746
+Multiplier 23  3.4299
+Multiplier  4  0.1070
+Multiplier 26  1.3662
+Multiplier 27  0.2488
+Multiplier  5  0.0160
+Multiplier  9  0.1626
+LogLike      -1996.0646
+Multiplier 20  0.5568
+Multiplier 21  0.2203
+Multiplier 22  0.4681
+Multiplier 23  3.4484
+Multiplier  4  0.1027
+Multiplier 26  1.3350
+Multiplier 27  0.1992
+Multiplier  5  0.0080
+Multiplier  9  0.1384
+Multiplier 12  0.0523
+LogLike      -1996.0660
+Multiplier 20  0.5571
+Multiplier 21  0.2155
+Multiplier 22  0.4724
+Multiplier 23  3.4433
+Multiplier  4  0.1034
+Multiplier 26  1.3446
+Multiplier 27  0.2018
+Multiplier  5  0.0087
+Multiplier  9  0.1391
+Multiplier 12  0.0484
+LogLike      -1996.0660
+Multiplier 20  0.5655
+Multiplier 21  0.0775
+Multiplier 22  0.5458
+Multiplier 23  2.2936
+Multiplier  4  0.1184
+Multiplier 26  1.6482
+Multiplier 27  0.2194
+Multiplier  5  0.0350
+Multiplier  9 -0.5321
+Multiplier 12 -0.0081
+Multiplier 17  1.9023
+LogLike      -1996.1116
+Multiplier 20  0.5899
+Multiplier 21  0.1052
+Multiplier 22  0.5354
+Multiplier 23  2.4304
+Multiplier  4  0.1103
+Multiplier 26  1.5739
+Multiplier 27  0.2109
+Multiplier  5  0.0338
+Multiplier  9 -0.4431
+Multiplier 12  0.0020
+Multiplier 17  1.6306
+LogLike      -1996.1095
+Multiplier 20  0.5865
+Multiplier 21  0.1052
+Multiplier 22  0.5409
+Multiplier 23  2.4688
+Multiplier  4  0.1090
+Multiplier 26  1.5681
+Multiplier 27  0.2107
+Multiplier  5  0.0308
+Multiplier  9 -0.4164
+Multiplier 12  0.0055
+Multiplier 17  1.5544
+LogLike      -1996.1094
+Multiplier 20  0.5155
+Multiplier 21  0.1457
+Multiplier 22  0.4984
+Multiplier 23  2.8158
+Multiplier  4  0.1162
+Multiplier 26  1.1926
+Multiplier 27  0.2222
+Multiplier  5 -0.0424
+Multiplier 12  0.0350
+Multiplier 17  0.6209
+Multiplier 11  0.1283
+LogLike      -1996.0939
+Multiplier 20  0.4961
+Multiplier 21  0.1326
+Multiplier 22  0.5083
+Multiplier 23  2.8146
+Multiplier  4  0.1182
+Multiplier 26  1.2212
+Multiplier 27  0.2235
+Multiplier  5 -0.0442
+Multiplier 12  0.0337
+Multiplier 17  0.6301
+Multiplier 11  0.1283
+LogLike      -1996.0930
+Multiplier 20  0.4970
+Multiplier 21  0.2771
+Multiplier 22  0.3441
+Multiplier 23  2.4159
+Multiplier  4  0.1302
+Multiplier 26  0.3348
+Multiplier 27  0.2665
+Multiplier 12 -0.1885
+Multiplier 17  0.7966
+Multiplier 11  0.1408
+Multiplier 19  0.7439
+LogLike      -1996.1097
+Multiplier 20  0.5052
+Multiplier 21  0.2717
+Multiplier 22  0.3485
+Multiplier 23  2.3377
+Multiplier  4  0.1296
+Multiplier 26  0.3043
+Multiplier 27  0.2595
+Multiplier 12 -0.1983
+Multiplier 17  0.8241
+Multiplier 11  0.1471
+Multiplier 19  0.8039
+    At iteration   20
+
+   *** The constrained analysis converged with the following results ***
+   The log likelihood is -1996.1097
+   The mean of each trait is
+         5.280584
+        23.520358
+        15.539231
+       -28.307943
+   The effect of the fixed factors is
+   (in the order given, levels within factors)
+
+   The estimates of the components are:
+    Additive
+              
+      6.394759      1.664125     -2.714429      0.214384
+                    0.450048     -0.710969      0.055752
+                                  1.061645     -0.085866
+                                                0.007506
+                                                        
+   Environmental
+              
+    183.136225      6.599487      9.865150     -0.234181
+                   13.613939      0.644455     -0.945289
+                                 21.964944      0.281613
+                                                1.057275
+                                                        
+   Common Environment
+              
+      3.032600     -0.715370     -1.730025     -0.283286
+                    0.482967      0.496283      0.246636
+                                  1.002397      0.217050
+                                                0.113004
+                                                        
+    Large-sample var-cov matrix of the estimates
+   1022.132898     38.553108     -7.640783     -2.068053      1.489435     -0.346546     -0.073076      0.163995      0.006128      0.004886   -511.149297    -19.290967      3.834008      1.034109     -0.745542      0.173557      0.036561     -0.081294     -0.003050     -0.002445   -489.154747    -16.481044     -0.054775      1.287762     -0.573341      0.028244      0.040821     -0.056890      0.004972     -0.003750
+                   40.877823      0.207282     -0.460964      3.032764     -0.294044     -0.096634      0.024808     -0.000116      0.001878    -19.297076    -20.445026     -0.101014      0.230621     -1.517940      0.147590      0.048356     -0.012336      0.000054     -0.000940    -16.479383    -19.528847     -0.669539      0.261812     -1.298521     -0.021950      0.058531     -0.016133      0.003114     -0.001354
+                                 93.976125      1.567740      0.012641      3.536923      0.056053     -1.356644     -0.199261     -0.006637      3.833097     -0.100406    -46.990348     -0.783666     -0.006137     -1.769578     -0.028023      0.682759      0.099376      0.003318     -0.081764     -0.670233    -45.057714     -0.812293     -0.037799     -1.517203     -0.024525     -0.037735      0.117235      0.004447
+                                                4.781517     -0.030120      0.059919      0.181717     -0.019016     -0.038574     -0.019724      1.033345      0.230543     -0.783084     -2.390752      0.015057     -0.029983     -0.090837      0.009502      0.019432      0.009857      1.286220      0.261746     -0.812866     -2.324715      0.015310     -0.026248     -0.079185     -0.002422      0.001509      0.012420
+                                                              6.316728      0.059525     -0.065337      0.008771     -0.001218      0.000863     -0.745863     -1.517664     -0.006253      0.015112     -3.159216     -0.029186      0.032624     -0.004360      0.000642     -0.000428     -0.573303     -1.298806     -0.037650      0.015292     -3.035009     -0.107715      0.037383     -0.008083      0.001634     -0.000555
+                                                                            7.333259      0.122083      0.142276     -0.070347     -0.002572      0.174056      0.147892     -1.769671     -0.029994     -0.029060     -3.668022     -0.060921     -0.069644      0.035018      0.001273      0.027798     -0.022124     -1.517477     -0.026265     -0.107991     -3.523845     -0.063313     -0.252345      0.038963      0.001599
+                                                                                          0.376614      0.003405      0.002480     -0.007592      0.036509      0.048362     -0.028062     -0.090896      0.032699     -0.061026     -0.188348     -0.001702     -0.001197      0.003792      0.040887      0.058505     -0.024520     -0.079168      0.037311     -0.063176     -0.183482     -0.005086     -0.005824      0.004419
+                                                                                                       34.711830      0.573975      0.009693     -0.082484     -0.012358      0.676876      0.009611     -0.004375     -0.069526     -0.001703    -17.347013     -0.286762     -0.004839     -0.056869     -0.016153     -0.029809     -0.002527     -0.008099     -0.252610     -0.005118    -16.680361     -0.299538     -0.005495
+                                                                                                                      0.899818      0.029031     -0.003184      0.000016      0.099329      0.019376      0.000560      0.035092     -0.001168     -0.288302     -0.449888     -0.014529      0.005089      0.003152      0.117280      0.001549      0.001648      0.038866     -0.005880     -0.298654     -0.438846     -0.015389
+                                                                                                                                    0.087777     -0.002444     -0.000948      0.003317      0.009880     -0.000429      0.001297      0.003788     -0.004843     -0.014535     -0.043915     -0.003761     -0.001349      0.004444      0.012448     -0.000550      0.001590      0.004418     -0.005477     -0.015338     -0.043326
+                                                                                                                                                647.255758     24.554324     14.699134     -0.753485      0.892255      0.482980     -0.026886      0.672166     -0.008354      0.001358     86.767446      2.708166     -5.955808     -0.542832      0.094515     -0.219977     -0.016735     -0.191000      0.001666      0.001807
+                                                                                                                                                               26.777675      0.655974     -1.060219      1.897024      0.560902     -0.066813      0.031267     -0.036180      0.001618      2.702032      3.630581      0.104725      0.208205      0.227577     -0.218586     -0.013340     -0.001164      0.011161      0.000244
+                                                                                                                                                                             62.525991      0.688171      0.025573      2.221311      0.024113      2.636142     -0.059964     -0.001972     -5.953253      0.106306      8.083477      0.288994      0.010230      0.261272      0.008369     -1.043041     -0.052804     -0.002061
+                                                                                                                                                                                            3.122870     -0.073240     -0.010755      0.111124      0.018550      0.062494     -0.007105     -0.546021      0.212180      0.292022      0.463706      0.016231      0.021858      0.015255     -0.007307     -0.026254     -0.005276
+                                                                                                                                                                                                          3.838627      0.061313     -0.156395      0.003090     -0.003172      0.008409      0.094342      0.228029      0.010020      0.015991      0.583970      0.034915      0.032963      0.003674      0.000268     -0.002706
+                                                                                                                                                                                                                        4.645163      0.051143      0.144542     -0.182475     -0.003261     -0.220820     -0.218719      0.261591      0.021805      0.034630      0.644354      0.023143      0.080569      0.040235      0.000191
+                                                                                                                                                                                                                                      0.235852      0.001741      0.002076     -0.018276     -0.016998     -0.013265      0.008363      0.015257      0.033550      0.023266      0.037566      0.002180      0.002309      0.004013
+                                                                                                                                                                                                                                                   19.015581      0.237683      0.003084     -0.193765     -0.001203     -1.058452     -0.007460      0.003663      0.081392      0.002199      2.949718      0.108484      0.002400
+                                                                                                                                                                                                                                                                  0.535406      0.011806      0.001329      0.011248     -0.053771     -0.026311      0.000237      0.041346      0.002382      0.107092      0.092107      0.005711
+                                                                                                                                                                                                                                                                                0.045900      0.001821      0.000221     -0.002084     -0.005357     -0.002665      0.000211      0.003916      0.002417      0.005738      0.009259
+                                                                                                                                                                                                                                                                                            408.883533     12.871083      4.024647     -1.125884      0.410368      0.120968     -0.034028      0.103706     -0.009156      0.003493
+                                                                                                                                                                                                                                                                                                           16.278033      0.862179     -0.322905      1.009840      0.178013     -0.054363      0.017095     -0.008056      0.001367
+                                                                                                                                                                                                                                                                                                                         37.728061      0.663189      0.046914      1.180102      0.017925      0.737186     -0.098447     -0.003946
+                                                                                                                                                                                                                                                                                                                                        1.943401     -0.019530      0.015022      0.061466      0.010658      0.015778     -0.010863
+                                                                                                                                                                                                                                                                                                                                                      2.541123      0.126503     -0.047607      0.008042     -0.002110      0.001413
+                                                                                                                                                                                                                                                                                                                                                                    2.974255      0.051360      0.295395     -0.051489     -0.001692
+                                                                                                                                                                                                                                                                                                                                                                                  0.152951      0.005638      0.006839     -0.005793
+                                                                                                                                                                                                                                                                                                                                                                                               14.145830      0.244458      0.004524
+                                                                                                                                                                                                                                                                                                                                                                                                              0.364016      0.012549
+                                                                                                                                                                                                                                                                                                                                                                                                                            0.036616
+                                                                                                                                                                                                                                                                                                                                                                                                

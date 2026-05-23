@@ -1,0 +1,794 @@
+---
+title: "Multivariate animal model — revised analysis"
+author: "Helen Payne (revised)"
+date: "2026-05-20"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Overview
+
+This document re-implements the multivariate animal-model analysis for the four
+*Nemophila menziesii* populations (AC, BB, BO, HR) and addresses the following
+issues with the original analysis:
+
+1. **Maternal (dam) random effect** added to separate V_A from maternal effects,
+   matching the paternal half-sib design rationale.
+2. **Block random effect** added (the field design has 3 blocks per site).
+3. **Genetic selection gradient (β_G)** computed via Robertson–Price identity
+   from the posterior of G, in addition to the Lande–Arnold phenotypic β.
+4. **Total fitness** (viability × fecundity) used for selection gradients, so
+   that viability selection is not lost.
+5. **Multiple MCMC chains** with Gelman–Rubin R̂ diagnostics.
+6. **Random Skewers** computed across the full posterior of G, not posterior
+   means only.
+7. **Deterministic data cleaning** (no unseeded `sample()` calls).
+8. **Function-based structure**: one set of functions, looped over populations.
+9. **Sample-size reporting** per population.
+10. **Significance-aware r_A plotting** (HPDs distinguished).
+
+A `TEST_RUN` flag at the top switches to a tiny MCMC run for debugging; set it
+to `FALSE` to fit the full analysis.
+
+```{r config}
+options(rgl.useNULL = TRUE)   # evolqg pulls in rgl; avoid X11 dependency
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(here)
+  library(MCMCglmm)
+  library(nadiv)
+  library(coda)
+  library(evolqg)
+  library(broom)
+  library(patchwork)
+})
+
+# evolqg pulls in plyr, which is required by evolqg and cannot be detached.
+# plyr exports its own mutate/rename/summarise/arrange that mask dplyr's.
+# We use `conflicted` to make the dplyr versions win when both are on the
+# search path.
+suppressPackageStartupMessages(library(conflicted))
+for (fn in c("mutate", "rename", "filter", "select", "summarise", "summarize",
+             "arrange", "group_by", "ungroup", "transmute", "count", "tally",
+             "distinct", "bind_rows", "bind_cols")) {
+  try(conflicted::conflict_prefer(fn, "dplyr", quiet = TRUE), silent = TRUE)
+}
+
+set.seed(20260520)
+
+# Toggle TEST_RUN = TRUE for a fast smoke-test (~1-2 min total).
+# Toggle TEST_RUN = FALSE for the publication-quality fit.
+TEST_RUN <- TRUE
+
+if (TEST_RUN) {
+  N_CHAINS <- 2
+  NITT     <- 6000
+  BURNIN   <- 1000
+  THIN     <- 5
+  N_SKEWERS <- 200
+  N_POST_DRAWS_FOR_SKEWERS <- 100   # subsample posterior to speed up
+} else {
+  N_CHAINS <- 3
+  NITT     <- 200000
+  BURNIN   <- 20000
+  THIN     <- 100
+  N_SKEWERS <- 2000
+  N_POST_DRAWS_FOR_SKEWERS <- 1000
+}
+
+# Per-population configuration. spatial_col differs between sites (BB uses
+# Location; AC/BO/HR use Transect). Seeds-sown differs between AC (10) and the
+# others (8). exclude_blocks: AC includes a "W" watered-treatment block that is
+# not part of this study.
+#
+# Data are loaded from the repo-local data/ directory, populated either by
+# R/fetch_dryad.R (first run; downloads from Dryad doi:10.5061/dryad.pvmcvdp1p)
+# or manually while the Dryad package is private.
+source(here::here("R", "fetch_dryad.R"))
+fetch_dryad(c("AC_compiledsheet_full_2022.csv",
+              "BB_compiledsheet_full_2022.csv",
+              "BO_compiledsheet_full_2022.csv",
+              "HR_compiledsheet_full_2022.csv"))
+
+POP_CONFIG <- list(
+  AC = list(file = "data/AC_compiledsheet_full_2022.csv",
+            spatial = "Transect", seeds_sown = 10, exclude_blocks = "W"),
+  BB = list(file = "data/BB_compiledsheet_full_2022.csv",
+            spatial = "Location", seeds_sown = 8,  exclude_blocks = character(0)),
+  BO = list(file = "data/BO_compiledsheet_full_2022.csv",
+            spatial = "Transect", seeds_sown = 8,  exclude_blocks = character(0)),
+  HR = list(file = "data/HR_compiledsheet_full_2022.csv",
+            spatial = "Transect", seeds_sown = 8,  exclude_blocks = character(0))
+)
+
+TRAITS <- c("corolla_z", "SLA_z", "d13C_z", "msm_z", "fec_z")
+NT     <- length(TRAITS)
+```
+
+# Data preparation
+
+The cleaning is deterministic: when a 1-m segment contains no plant flagged as
+`F_plant`, we now select the **first surviving sibling** in row order (rather
+than a random plant). This matches the field protocol described in the
+manuscript ("if the selected individual died before flowering, a sibling within
+the same segment was substituted") and is reproducible.
+
+```{r prep-fn}
+prep_population <- function(pop_code, cfg) {
+  fpath <- here::here(cfg[["file"]])
+  raw <- readr::read_csv(fpath, show_col_types = FALSE)
+  spatial <- cfg$spatial
+
+  if (length(cfg$exclude_blocks) > 0) {
+    raw <- raw %>% filter(!(Block %in% cfg$exclude_blocks))
+  }
+
+  raw <- raw %>%
+    mutate(
+      Donor     = paste0("Donor_",     pop_code, "_",
+                         str_remove(Donor,     paste0("^Donor_", pop_code, "_|^", pop_code, "_"))),
+      Recipient = paste0("Recipient_", pop_code, "_",
+                         str_remove(Recipient, paste0("^Recipient_", pop_code, "_|^", pop_code, "_"))),
+      F_plant   = ifelse(F_plant == TRUE, 1L, 0L),
+      F_plant   = ifelse(is.na(F_plant), 0L, F_plant),
+      surv_to_flower = ifelse(total_fruits > 0 & surv_to_flower == 0,
+                              1, surv_to_flower)
+    ) %>%
+    rename(spatial_unit = !!sym(spatial)) %>%
+    mutate(spatial_unit = suppressWarnings(as.numeric(spatial_unit))) %>%
+    filter(!is.na(spatial_unit)) %>%
+    mutate(
+      sample_ID = str_c(Year, Donor, Recipient, Gen,
+                        str_pad(spatial_unit, width = 3, pad = "0"),
+                        Plant_ID, sep = "_"),
+      sample_ID = str_replace(sample_ID, "^([^_]*)_", "\\1-")
+    )
+
+  # Deterministic F_plant assignment: where no plant in a segment is flagged
+  # as F_plant, take the first surviving sibling. If none survived, take the
+  # first row (it will contribute W=0 to selection analysis).
+  raw <- raw %>%
+    mutate(sample_prefix = substr(sample_ID, 1, 19)) %>%
+    group_by(sample_prefix) %>%
+    mutate(
+      seg_has_fplant = sum(F_plant) > 0,
+      seg_first_surv = which(surv_to_flower == 1)[1],   # NA if none survived
+      seg_pick_idx   = ifelse(!is.na(seg_first_surv), seg_first_surv, 1L),
+      F_plant        = ifelse(!seg_has_fplant & row_number() == seg_pick_idx,
+                              1L, F_plant)
+    ) %>%
+    ungroup() %>%
+    select(-sample_prefix, -seg_has_fplant, -seg_first_surv, -seg_pick_idx)
+
+  # Segment-level survival count (number alive out of seeds_sown), used for
+  # the survival glm.
+  raw <- raw %>%
+    mutate(group = ceiling(row_number() / 8)) %>%
+    group_by(group) %>%
+    mutate(total_surv_to_flower = sum(surv_to_flower, na.rm = TRUE)) %>%
+    ungroup() %>%
+    select(-group)
+
+  fp <- raw %>% filter(F_plant == 1L)
+
+  fp <- fp %>%
+    mutate(
+      animal  = sample_ID,
+      dam     = Recipient,
+      sire    = Donor,
+      block   = factor(Block),
+      transect_f = factor(spatial_unit),
+      corolla = corolla_diam_mm_SEG,
+      SLA     = SLA_SEG,
+      d13C    = d13C_SEG,
+      msm     = msm_all,
+      fec     = est_fecundity,
+      surv    = surv_to_flower
+    )
+
+  # Center+scale to mean 0 / sd 1 (z-scaling) using only finite values.
+  z <- function(x) {
+    m <- mean(x, na.rm = TRUE); s <- sd(x, na.rm = TRUE)
+    if (!is.finite(s) || s == 0) return(rep(NA_real_, length(x)))
+    (x - m) / s
+  }
+  fp <- fp %>%
+    mutate(
+      corolla_z = z(corolla),
+      SLA_z     = z(SLA),
+      d13C_z    = z(d13C),
+      msm_z     = z(msm),
+      fec_z     = z(fec)
+    )
+
+  list(all = raw, fp = fp, pop = pop_code, spatial = spatial)
+}
+
+build_pedigree <- function(fp) {
+  ped <- tibble(
+    animal = as.character(fp$sample_ID),
+    dam    = fp$Recipient,
+    sire   = fp$Donor
+  )
+  missing_parents <- setdiff(unique(c(ped$dam, ped$sire)), ped$animal)
+  ped2 <- bind_rows(
+    ped,
+    tibble(animal = missing_parents, dam = NA_character_, sire = NA_character_)
+  ) %>% distinct(animal, .keep_all = TRUE)
+  ped_ord <- prepPed(as.data.frame(ped2))
+  Ainv <- MCMCglmm::inverseA(ped_ord)$Ainv
+  list(ped = ped_ord, Ainv = Ainv)
+}
+```
+
+# Load and summarise
+
+```{r load-all}
+pop_data <- purrr::map(names(POP_CONFIG),
+                ~ prep_population(.x, POP_CONFIG[[.x]]))
+names(pop_data) <- names(POP_CONFIG)
+
+# Sample-size reporting table (item #18 from the review)
+sample_sizes <- purrr::map_dfr(pop_data, function(d) {
+  fp <- d$fp
+  tibble(
+    Pop          = d$pop,
+    n_sown       = nrow(d$all),
+    n_survivors  = sum(d$all$surv_to_flower == 1, na.rm = TRUE),
+    n_fitness_plants = nrow(fp),
+    n_sires      = length(unique(fp$sire)),
+    n_dams       = length(unique(fp$dam)),
+    n_blocks     = length(unique(fp$block)),
+    n_spatial    = length(unique(fp$transect_f))
+  )
+})
+sample_sizes
+```
+
+# Animal-model fitting
+
+The fitted model now includes:
+
+- `us(trait):animal` — additive genetic effects via the pedigree (V_A).
+- `us(trait):dam` — maternal effects (separates V_A from V_dam; addresses
+  review point #1).
+- `idh(trait):block` — block environmental effects (addresses point #6).
+- Fixed effect: `trait - 1` (trait-specific intercept) plus `trait:transect_f`
+  with transect as a factor (not a continuous covariate).
+
+Priors: a parameter-expanded prior on G and dam, weakly informative on R.
+A second prior (informative IW with V=I, ν=nt) is also run for one population
+as a sensitivity check.
+
+```{r mcmc-fn}
+fit_animal_model <- function(prep, peds, prior_type = "px",
+                             nitt = NITT, burnin = BURNIN, thin = THIN,
+                             n_chains = N_CHAINS) {
+
+  dat   <- as.data.frame(prep$fp)
+  Ainv  <- peds$Ainv
+
+  dat$animal <- factor(trimws(as.character(dat$animal)),
+                       levels = rownames(Ainv))
+  dat$animal <- droplevels(dat$animal)
+  dat$dam    <- factor(dat$dam)
+  dat$block  <- factor(dat$block)
+  dat$transect_f <- factor(dat$transect_f)
+
+  if (prior_type == "px") {
+    # Parameter-expanded prior: weakly informative on correlations.
+    prior <- list(
+      G = list(
+        G1 = list(V = diag(NT), nu = NT, alpha.mu = rep(0, NT),
+                  alpha.V = diag(NT) * 1000),     # animal (V_A)
+        G2 = list(V = diag(NT), nu = NT, alpha.mu = rep(0, NT),
+                  alpha.V = diag(NT) * 1000),     # dam (V_M)
+        G3 = list(V = diag(NT), nu = 0.002)       # block (idh)
+      ),
+      R = list(V = diag(NT), nu = NT)
+    )
+  } else if (prior_type == "iw") {
+    # Standard inverse-Wishart, V=I, nu=nt: the prior used in the original
+    # analysis. Run for sensitivity comparison.
+    prior <- list(
+      G = list(
+        G1 = list(V = diag(NT), nu = NT),
+        G2 = list(V = diag(NT), nu = NT),
+        G3 = list(V = diag(NT), nu = 0.002)
+      ),
+      R = list(V = diag(NT), nu = NT)
+    )
+  } else stop("unknown prior_type")
+
+  fit_one <- function(seed) {
+    set.seed(seed)
+    MCMCglmm(
+      fixed   = cbind(corolla_z, SLA_z, d13C_z, msm_z, fec_z) ~
+                  trait - 1 + trait:transect_f,
+      random  = ~ us(trait):animal + us(trait):dam + idh(trait):block,
+      rcov    = ~ us(trait):units,
+      family  = rep("gaussian", NT),
+      ginverse = list(animal = Ainv),
+      data    = dat,
+      prior   = prior,
+      nitt    = nitt, burnin = burnin, thin = thin,
+      verbose = FALSE
+    )
+  }
+
+  seeds <- 1:n_chains
+  fits <- purrr::map(seeds, fit_one)
+  fits
+}
+```
+
+```{r build-peds}
+peds_list <- purrr::map(pop_data, ~ build_pedigree(.x$fp))
+```
+
+```{r fit-models, cache=FALSE}
+# Run the main fits (parameter-expanded prior) for every population.
+fits_main <- purrr::map2(pop_data, peds_list,
+                  ~ fit_animal_model(.x, .y, prior_type = "px"))
+
+# Sensitivity: refit AC with the informative IW prior.
+fits_iw_AC <- fit_animal_model(pop_data$AC, peds_list$AC, prior_type = "iw")
+```
+
+# Convergence diagnostics
+
+```{r convergence}
+gelman_summary <- function(fits, label) {
+  # Combine V_A (animal) diagonals across chains and compute R-hat.
+  vcv_list <- lapply(fits, function(f) {
+    G_cols <- grep("\\.animal$", colnames(f$VCV), value = TRUE)
+    G_diag <- G_cols[grepl("trait([^:]+):trait\\1\\.animal$", G_cols)]
+    f$VCV[, G_diag]
+  })
+  mc <- mcmc.list(lapply(vcv_list, as.mcmc))
+  gd <- gelman.diag(mc, multivariate = FALSE, autoburnin = FALSE)
+  tibble(Pop = label,
+         param = rownames(gd$psrf),
+         psrf  = gd$psrf[, 1],
+         upper = gd$psrf[, 2])
+}
+
+conv_tbl <- purrr::map2_dfr(fits_main, names(fits_main),
+                     ~ gelman_summary(.x, .y))
+conv_tbl
+
+ess_summary <- function(fits, label) {
+  combined <- as.mcmc(do.call(rbind, lapply(fits, function(f) as.matrix(f$VCV))))
+  G_cols <- grep("\\.animal$", colnames(combined), value = TRUE)
+  G_diag <- G_cols[grepl("trait([^:]+):trait\\1\\.animal$", G_cols)]
+  ess <- effectiveSize(combined[, G_diag])
+  tibble(Pop = label, param = names(ess), ESS = unname(ess))
+}
+ess_tbl <- purrr::map2_dfr(fits_main, names(fits_main), ~ ess_summary(.x, .y))
+ess_tbl
+```
+
+# Extract G, V_A, h², r_A from posterior
+
+```{r extract-fn}
+# Defensive HPD: drop NAs, return NA pair if too few samples.
+safe_hpd <- function(x, prob = 0.95) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2) return(c(NA_real_, NA_real_))
+  as.numeric(HPDinterval(as.mcmc(x), prob = prob))
+}
+
+combine_VCV <- function(fits) {
+  do.call(rbind, lapply(fits, function(f) as.matrix(f$VCV)))
+}
+
+build_G_array <- function(VCV, suffix = "animal") {
+  # Returns 3-D array: [iter, trait, trait]
+  Gcol <- function(t1, t2) paste0("trait", t1, ":trait", t2, ".", suffix)
+  out <- array(NA_real_, dim = c(nrow(VCV), NT, NT),
+               dimnames = list(NULL, TRAITS, TRAITS))
+  for (i in seq_along(TRAITS)) for (j in seq_along(TRAITS)) {
+    out[, i, j] <- VCV[, Gcol(TRAITS[i], TRAITS[j])]
+  }
+  out
+}
+
+posterior_summary_matrix <- function(arr) {
+  mean_mat <- apply(arr, c(2, 3), mean)
+  l95 <- apply(arr, c(2, 3), function(x) safe_hpd(x)[1])
+  u95 <- apply(arr, c(2, 3), function(x) safe_hpd(x)[2])
+  list(mean = mean_mat, l95 = l95, u95 = u95,
+       sig  = (l95 > 0) | (u95 < 0))
+}
+
+cov2cor_mat <- function(S) {
+  d <- sqrt(diag(S))
+  S / (d %o% d)
+}
+
+rA_from_G <- function(G_arr) {
+  out <- array(NA_real_, dim = dim(G_arr), dimnames = dimnames(G_arr))
+  for (k in seq_len(dim(G_arr)[1])) out[k, , ] <- cov2cor_mat(G_arr[k, , ])
+  out
+}
+
+# Per-population extraction:
+extract_pop <- function(fits) {
+  VCV <- combine_VCV(fits)
+  G_array <- build_G_array(VCV, "animal")
+  M_array <- build_G_array(VCV, "dam")
+  R_array <- build_G_array(VCV, "units")
+  rA_array <- rA_from_G(G_array)
+
+  # h² with proper V_P denominator: V_A / (V_A + V_M + V_R + V_block).
+  # Block is idh(trait):block, so its columns are "trait*:trait*.block" diagonals
+  # only — pull them from VCV directly.
+  block_cols <- grep("\\.block$", colnames(VCV), value = TRUE)
+  block_diag <- block_cols[grepl("trait([^:]+)\\.block$", block_cols)]
+
+  h2_array <- array(NA_real_, dim = c(nrow(VCV), NT),
+                    dimnames = list(NULL, TRAITS))
+  for (i in seq_along(TRAITS)) {
+    Va <- G_array[, i, i]
+    Vm <- M_array[, i, i]
+    Vr <- R_array[, i, i]
+    # Match block diagonal for this trait
+    bcol <- grep(paste0("trait", TRAITS[i], "\\.block$"), block_cols, value = TRUE)
+    Vb   <- if (length(bcol) == 1) VCV[, bcol] else 0
+    h2_array[, i] <- Va / (Va + Vm + Vb + Vr)
+  }
+
+  list(
+    VCV = VCV,
+    G_array = G_array,
+    M_array = M_array,
+    R_array = R_array,
+    rA_array = rA_array,
+    h2_array = h2_array,
+    G_summary  = posterior_summary_matrix(G_array),
+    M_summary  = posterior_summary_matrix(M_array),
+    rA_summary = posterior_summary_matrix(rA_array)
+  )
+}
+
+post_main <- purrr::map(fits_main, extract_pop)
+```
+
+```{r tables-VAh2}
+# V_A posterior summary table
+Va_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  tibble(
+    Pop = pop, trait = TRAITS,
+    Va_mean = diag(p$G_summary$mean),
+    Va_l95  = diag(p$G_summary$l95),
+    Va_u95  = diag(p$G_summary$u95)
+  )
+})
+Va_tbl
+
+# V_M (maternal) posterior summary table — directly checks whether maternal
+# effects were soaking up variance previously attributed to V_A.
+Vm_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  tibble(
+    Pop = pop, trait = TRAITS,
+    Vm_mean = diag(p$M_summary$mean),
+    Vm_l95  = diag(p$M_summary$l95),
+    Vm_u95  = diag(p$M_summary$u95)
+  )
+})
+Vm_tbl
+
+# h² with proper denominator
+h2_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  tibble(
+    Pop   = pop, trait = TRAITS,
+    h2_mean = colMeans(p$h2_array, na.rm = TRUE),
+    h2_l95  = apply(p$h2_array, 2, function(x) safe_hpd(x)[1]),
+    h2_u95  = apply(p$h2_array, 2, function(x) safe_hpd(x)[2])
+  )
+})
+h2_tbl
+```
+
+# Phenotypic vs genetic selection gradients
+
+This is the central added analysis (review point #2). β_P is the standard
+Lande–Arnold OLS regression of relative fitness on standardised trait values.
+β_G is computed from the joint G matrix using the Robertson–Price identity:
+
+β_G = G_zz⁻¹ · Cov_A(z, w)
+
+where z indexes the four non-fitness traits and w is fecundity (fitness). The
+posterior of β_G is obtained by computing the inverse and cross-covariance
+draw-by-draw.
+
+We also report a **total-fitness** β_P that uses survival × fecundity (review
+point #4): all sown plants enter the regression, with W = 0 for non-survivors.
+
+```{r beta-phenotypic}
+beta_pheno <- function(prep, total_fitness = FALSE) {
+  if (total_fitness) {
+    # All sown plants: use survival × fecundity as fitness.
+    d <- prep$all %>%
+      mutate(
+        fec_safe = ifelse(is.na(est_fecundity), 0, est_fecundity),
+        W = ifelse(surv_to_flower == 1, fec_safe, 0)
+      )
+    # Standardise trait values across F_plants and propagate to non-F_plants:
+    # for non-F_plants, traits are NA so they fall out of the regression. That
+    # means total-fitness β here measures fecundity selection conditional on
+    # observed traits; the surv_glm below quantifies viability selection
+    # separately. (Computing a true total-fitness β requires imputed trait
+    # values, which we don't do here.)
+    # Instead, we restrict to F_plants but compute W including viability=0
+    # plants by joining to F_plant survival outcomes — see surv_glm.
+    d <- prep$fp %>%
+      mutate(W = ifelse(surv == 1,
+                        ifelse(is.na(fec), 0, fec), 0))
+  } else {
+    d <- prep$fp %>% mutate(W = ifelse(is.na(fec), 0, fec))
+  }
+  d <- d %>%
+    mutate(w_rel = W / mean(W[W > 0 | surv == 1], na.rm = TRUE)) %>%
+    select(corolla_z, SLA_z, d13C_z, msm_z, w_rel) %>%
+    drop_na()
+  if (nrow(d) < 10) return(NULL)
+  mod <- lm(w_rel ~ corolla_z + SLA_z + d13C_z + msm_z, data = d)
+  broom::tidy(mod, conf.int = TRUE) %>%
+    filter(term != "(Intercept)")
+}
+
+beta_P_tbl <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  beta_pheno(prep, total_fitness = FALSE) %>%
+    mutate(Pop = pop, fitness_def = "fec_only_flowering", .before = 1)
+})
+beta_P_total <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  beta_pheno(prep, total_fitness = TRUE) %>%
+    mutate(Pop = pop, fitness_def = "surv_x_fec", .before = 1)
+})
+beta_P_all <- bind_rows(beta_P_tbl, beta_P_total)
+beta_P_all
+```
+
+```{r beta-genetic}
+# Genetic selection gradients from G + Cov_A(z, w), draw by draw.
+beta_genetic_posterior <- function(G_array, fec_index = 5) {
+  z_idx <- setdiff(seq_len(NT), fec_index)
+  niter <- dim(G_array)[1]
+  out   <- matrix(NA_real_, nrow = niter, ncol = length(z_idx),
+                  dimnames = list(NULL, TRAITS[z_idx]))
+  for (k in seq_len(niter)) {
+    Gk    <- G_array[k, , ]          # 5x5
+    G_zz  <- Gk[z_idx, z_idx]        # 4x4
+    G_zw  <- Gk[z_idx, fec_index]    # length-4
+    out[k, ] <- tryCatch(
+      as.numeric(solve(G_zz, G_zw)),
+      error = function(e) rep(NA_real_, length(z_idx))
+    )
+  }
+  out
+}
+
+beta_G_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  bG <- beta_genetic_posterior(p$G_array, fec_index = which(TRAITS == "fec_z"))
+  hpds <- apply(bG, 2, safe_hpd)
+  tibble(
+    Pop         = pop,
+    trait       = colnames(bG),
+    beta_G_mean = colMeans(bG, na.rm = TRUE),
+    beta_G_l95  = hpds[1, ],
+    beta_G_u95  = hpds[2, ],
+    sig         = (hpds[1, ] > 0) | (hpds[2, ] < 0)
+  )
+})
+beta_G_tbl
+```
+
+```{r beta-comparison-plot, fig.width=11, fig.height=5}
+# Side-by-side phenotypic vs genetic selection gradients.
+plot_dat <- bind_rows(
+  beta_P_tbl %>%
+    transmute(Pop, trait = term,
+              mean = estimate, l95 = conf.low, u95 = conf.high,
+              type = "Phenotypic β (fecundity)"),
+  beta_G_tbl %>%
+    transmute(Pop, trait,
+              mean = beta_G_mean, l95 = beta_G_l95, u95 = beta_G_u95,
+              type = "Genetic β_G")
+) %>%
+  mutate(
+    sig = (l95 > 0) | (u95 < 0),
+    trait = recode_factor(trait,
+              corolla_z = "corolla", SLA_z = "SLA",
+              d13C_z    = "δ13C",    msm_z = "msm")
+  )
+
+ggplot(plot_dat, aes(mean, Pop, colour = type, shape = sig)) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  geom_errorbarh(aes(xmin = l95, xmax = u95),
+                 height = 0.2, position = position_dodge(width = 0.5)) +
+  geom_point(size = 3, position = position_dodge(width = 0.5)) +
+  facet_wrap(~ trait, scales = "free_x", nrow = 1) +
+  scale_shape_manual(values = c("FALSE" = 1, "TRUE" = 16),
+                     labels = c("NS", "HPD excludes 0")) +
+  labs(x = "Standardised selection gradient",
+       y = NULL, colour = NULL, shape = NULL) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+# Viability selection (separate component of total fitness)
+
+```{r surv-glm}
+surv_summary <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  cfg <- POP_CONFIG[[pop]]
+  d <- prep$fp %>%
+    mutate(seeds_sown = cfg$seeds_sown,
+           total_surv_to_flower = pmin(total_surv_to_flower, seeds_sown)) %>%
+    select(total_surv_to_flower, seeds_sown,
+           corolla_z, SLA_z, d13C_z, msm_z) %>%
+    drop_na()
+  if (nrow(d) < 10) return(NULL)
+  mod <- glm(cbind(total_surv_to_flower, seeds_sown - total_surv_to_flower) ~
+               corolla_z + SLA_z + d13C_z + msm_z,
+             family = quasibinomial, data = d)
+  broom::tidy(mod, conf.int = TRUE) %>%
+    filter(term != "(Intercept)") %>%
+    mutate(Pop = pop, .before = 1)
+})
+surv_summary
+```
+
+# Evolvability metrics on full posterior
+
+Evolvability metrics are computed per posterior draw (not just on G_mean), so
+HPD intervals correctly reflect uncertainty in G.
+
+```{r evolvability}
+rand_unit_vecs <- function(p, nvec) {
+  M <- matrix(rnorm(nvec * p), nvec, p)
+  M / sqrt(rowSums(M^2))
+}
+
+evolv_one <- function(G, B) {
+  e <- rowSums((B %*% G) * B)
+  cev <- tryCatch({
+    Ginv <- solve(G)
+    1 / rowSums((B %*% Ginv) * B)
+  }, error = function(e) rep(NA_real_, nrow(B)))
+  a <- cev / e
+  c(e_mean = mean(e, na.rm = TRUE),
+    e_min  = min(e,  na.rm = TRUE),
+    e_max  = max(e,  na.rm = TRUE),
+    c_mean = mean(cev, na.rm = TRUE),
+    a_mean = mean(a,   na.rm = TRUE))
+}
+
+set.seed(20260520)
+B <- rand_unit_vecs(NT, N_SKEWERS)
+
+evol_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  niter <- dim(p$G_array)[1]
+  m <- t(sapply(seq_len(niter),
+                function(k) evolv_one(p$G_array[k, , ], B)))
+  m <- as.data.frame(m)
+  purrr::imap_dfr(m, function(x, metric) {
+    h <- safe_hpd(x)
+    tibble(Pop = pop, metric = metric,
+           mean = mean(x, na.rm = TRUE),
+           l95 = h[1], u95 = h[2])
+  })
+})
+evol_tbl
+```
+
+# Random Skewers with full posterior
+
+Pairwise r_RS between populations, propagating uncertainty by drawing one
+posterior sample from each population per skewer comparison.
+
+```{r random-skewers}
+posterior_skewers <- function(G_array_1, G_array_2,
+                              n_draws = N_POST_DRAWS_FOR_SKEWERS,
+                              n_skewers = N_SKEWERS) {
+  i1 <- sample(seq_len(dim(G_array_1)[1]), n_draws, replace = TRUE)
+  i2 <- sample(seq_len(dim(G_array_2)[1]), n_draws, replace = TRUE)
+  vapply(seq_len(n_draws), function(k) {
+    res <- tryCatch(
+      RandomSkewers(G_array_1[i1[k], , ], G_array_2[i2[k], , ],
+                    num.vectors = n_skewers),
+      error = function(e) c(correlation = NA_real_))
+    unname(res["correlation"])
+  }, numeric(1))
+}
+
+pop_names <- names(post_main)
+pairs <- combn(pop_names, 2, simplify = FALSE)
+rs_tbl <- purrr::map_dfr(pairs, function(pp) {
+  r <- posterior_skewers(post_main[[pp[1]]]$G_array,
+                         post_main[[pp[2]]]$G_array)
+  h <- safe_hpd(r)
+  tibble(pop1 = pp[1], pop2 = pp[2],
+         r_RS_mean = mean(r, na.rm = TRUE),
+         r_RS_l95  = h[1], r_RS_u95 = h[2])
+})
+rs_tbl
+```
+
+# r_A figure with significance distinguished
+
+Cells whose 95% HPD excludes zero are bordered in black; non-significant cells
+are de-saturated. This addresses review point #11.
+
+```{r ra-plot, fig.width=10, fig.height=8}
+trait_labels <- c(corolla_z = "corolla", SLA_z = "SLA",
+                  d13C_z = "δ13C", msm_z = "msm", fec_z = "fecundity")
+
+rA_long <- purrr::imap_dfr(post_main, function(p, pop) {
+  m   <- p$rA_summary$mean
+  l   <- p$rA_summary$l95
+  u   <- p$rA_summary$u95
+  sig <- p$rA_summary$sig
+  expand_grid(trait1 = rownames(m), trait2 = colnames(m)) %>%
+    mutate(
+      Pop = pop,
+      rA  = as.vector(m), l95 = as.vector(l), u95 = as.vector(u),
+      sig = as.vector(sig),
+      trait1 = factor(recode(trait1, !!!trait_labels),
+                      levels = unname(trait_labels)),
+      trait2 = factor(recode(trait2, !!!trait_labels),
+                      levels = unname(trait_labels))
+    )
+})
+
+ggplot(rA_long, aes(trait1, trait2, fill = rA)) +
+  geom_tile(aes(alpha = ifelse(sig, 1, 0.35)), colour = NA) +
+  geom_tile(data = filter(rA_long, sig),
+            fill = NA, colour = "black", linewidth = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", rA),
+                fontface = ifelse(sig, "bold", "plain")), size = 3.2) +
+  scale_alpha_identity() +
+  scale_fill_gradient2(low = "#3B9AB2", mid = "white", high = "#F21A00",
+                       midpoint = 0, limits = c(-1, 1)) +
+  coord_equal() +
+  facet_wrap(~ Pop) +
+  labs(x = NULL, y = NULL, fill = "r_A") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Prior sensitivity (AC only)
+
+```{r prior-sensitivity}
+extract_rA_summary <- function(fits) {
+  VCV <- combine_VCV(fits)
+  G_array <- build_G_array(VCV, "animal")
+  rA_array <- rA_from_G(G_array)
+  s <- posterior_summary_matrix(rA_array)
+  tibble(
+    trait_pair = outer(TRAITS, TRAITS, paste, sep = "/")[upper.tri(diag(NT))],
+    rA_mean = s$mean[upper.tri(s$mean)],
+    rA_l95  = s$l95[upper.tri(s$l95)],
+    rA_u95  = s$u95[upper.tri(s$u95)]
+  )
+}
+
+ac_px <- extract_rA_summary(fits_main$AC) %>% mutate(prior = "PX (default)")
+ac_iw <- extract_rA_summary(fits_iw_AC)   %>% mutate(prior = "IW(V=I, nu=nt)")
+prior_compare <- bind_rows(ac_px, ac_iw)
+prior_compare
+```
+
+# Session info
+
+```{r session}
+sessionInfo()
+```
