@@ -4,9 +4,11 @@
 .RData
 .Ruserdata
 .DS_Store
-*.html
 
 # Knitr outputs
+*.html
+*.pdf
+*.docx
 *_files/
 *_cache/
 
