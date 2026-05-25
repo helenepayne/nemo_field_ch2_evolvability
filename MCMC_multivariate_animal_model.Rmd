@@ -49,6 +49,7 @@ suppressPackageStartupMessages({
   library(evolqg)
   library(broom)
   library(patchwork)
+  library(car)        # vif()
 })
 
 # evolqg pulls in plyr, which is required by evolqg and cannot be detached.
@@ -58,7 +59,7 @@ suppressPackageStartupMessages({
 suppressPackageStartupMessages(library(conflicted))
 for (fn in c("mutate", "rename", "filter", "select", "summarise", "summarize",
              "arrange", "group_by", "ungroup", "transmute", "count", "tally",
-             "distinct", "bind_rows", "bind_cols")) {
+             "distinct", "bind_rows", "bind_cols", "recode")) {
   try(conflicted::conflict_prefer(fn, "dplyr", quiet = TRUE), silent = TRUE)
 }
 
@@ -251,6 +252,54 @@ sample_sizes <- purrr::map_dfr(pop_data, function(d) {
   )
 })
 sample_sizes
+```
+
+# Population-specific mean trait values (Figure 4 / Table S3)
+
+Per-population raw-scale means ± SE for the five focal traits. Mirrors
+Figure 4 and Table S3 of the manuscript.
+
+```{r trait-means-table}
+trait_means_tbl <- purrr::imap_dfr(pop_data, function(d, pop) {
+  fp <- d$fp
+  tibble(
+    Pop  = pop,
+    trait = c("corolla_diam_mm", "SLA", "d13C", "mean_seed_mass_mg", "fecundity"),
+    mean = c(mean(fp$corolla, na.rm = TRUE),
+             mean(fp$SLA,     na.rm = TRUE),
+             mean(fp$d13C,    na.rm = TRUE),
+             mean(fp$msm,     na.rm = TRUE),
+             mean(fp$fec,     na.rm = TRUE)),
+    se   = c(sd(fp$corolla, na.rm = TRUE) / sqrt(sum(!is.na(fp$corolla))),
+             sd(fp$SLA,     na.rm = TRUE) / sqrt(sum(!is.na(fp$SLA))),
+             sd(fp$d13C,    na.rm = TRUE) / sqrt(sum(!is.na(fp$d13C))),
+             sd(fp$msm,     na.rm = TRUE) / sqrt(sum(!is.na(fp$msm))),
+             sd(fp$fec,     na.rm = TRUE) / sqrt(sum(!is.na(fp$fec)))),
+    n    = c(sum(!is.na(fp$corolla)), sum(!is.na(fp$SLA)),
+             sum(!is.na(fp$d13C)),    sum(!is.na(fp$msm)),
+             sum(!is.na(fp$fec)))
+  )
+})
+trait_means_tbl
+```
+
+```{r trait-means-plot, fig.width=11, fig.height=3.5}
+trait_lbl <- c(corolla_diam_mm   = "corolla diameter (mm)",
+               SLA               = "SLA (mm^2/mg)",
+               d13C              = "δ13C (‰)",
+               mean_seed_mass_mg = "mean seed mass (mg)",
+               fecundity         = "fecundity (filled seeds)")
+
+trait_means_tbl %>%
+  mutate(trait = factor(recode(trait, !!!trait_lbl), levels = unname(trait_lbl))) %>%
+  ggplot(aes(Pop, mean, fill = Pop)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.25) +
+  facet_wrap(~ trait, scales = "free_y", nrow = 1) +
+  labs(x = NULL, y = "Mean ± SE") +
+  theme_classic(base_size = 11) +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 9))
 ```
 
 # Animal-model fitting
@@ -542,8 +591,15 @@ beta_pheno <- function(prep, total_fitness = FALSE) {
     drop_na()
   if (nrow(d) < 10) return(NULL)
   mod <- lm(w_rel ~ corolla_z + SLA_z + d13C_z + msm_z, data = d)
-  broom::tidy(mod, conf.int = TRUE) %>%
-    filter(term != "(Intercept)")
+  vifs <- tryCatch(car::vif(mod), error = function(e) rep(NA_real_, 4))
+  vif_df <- tibble(term = names(vifs), vif = unname(vifs))
+  g <- broom::glance(mod) %>%
+    select(r.squared, adj.r.squared, statistic, p.value, df, df.residual, nobs)
+  coefs <- broom::tidy(mod, conf.int = TRUE) %>%
+    filter(term != "(Intercept)") %>%
+    left_join(vif_df, by = "term")
+  attr(coefs, "model_fit") <- g
+  coefs
 }
 
 beta_P_tbl <- purrr::imap_dfr(pop_data, function(prep, pop) {
@@ -556,6 +612,23 @@ beta_P_total <- purrr::imap_dfr(pop_data, function(prep, pop) {
 })
 beta_P_all <- bind_rows(beta_P_tbl, beta_P_total)
 beta_P_all
+
+# Per-population R², F, p, n and max VIF for the fecundity-only β regressions
+# (matches the manuscript text "R² ≈ 0.10" and "all VIF < 1.1").
+beta_P_fit_summary <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  coefs <- beta_pheno(prep, total_fitness = FALSE)
+  if (is.null(coefs)) return(NULL)
+  g <- attr(coefs, "model_fit")
+  tibble(Pop = pop,
+         r_squared     = g$r.squared,
+         adj_r_squared = g$adj.r.squared,
+         F_stat        = g$statistic,
+         p_value       = g$p.value,
+         df_resid      = g$df.residual,
+         n             = g$nobs,
+         max_vif       = max(coefs$vif, na.rm = TRUE))
+})
+beta_P_fit_summary
 ```
 
 ```{r beta-genetic}
@@ -647,6 +720,35 @@ surv_summary <- purrr::imap_dfr(pop_data, function(prep, pop) {
 surv_summary
 ```
 
+```{r surv-overdispersion}
+# Overdispersion check for the viability GLMs (original analysis used
+# overdisp_fun; BO and HR used quasibinomial precisely because of this).
+overdisp_fun <- function(model) {
+  rp  <- residuals(model, type = "pearson")
+  sum(rp^2) / df.residual(model)
+}
+
+overdisp_tbl <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  cfg <- POP_CONFIG[[pop]]
+  d <- prep$fp %>%
+    mutate(seeds_sown = cfg$seeds_sown,
+           total_surv_to_flower = pmin(total_surv_to_flower, seeds_sown)) %>%
+    select(total_surv_to_flower, seeds_sown,
+           corolla_z, SLA_z, d13C_z, msm_z) %>%
+    drop_na()
+  if (nrow(d) < 10) return(NULL)
+  # Fit with standard binomial to diagnose overdispersion
+  mod_binom <- glm(
+    cbind(total_surv_to_flower, seeds_sown - total_surv_to_flower) ~
+      corolla_z + SLA_z + d13C_z + msm_z,
+    family = binomial, data = d)
+  tibble(Pop = pop,
+         overdispersion_ratio = overdisp_fun(mod_binom),
+         family_used = "quasibinomial")
+})
+overdisp_tbl
+```
+
 # Evolvability metrics on full posterior
 
 Evolvability metrics are computed per posterior draw (not just on G_mean), so
@@ -690,6 +792,132 @@ evol_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
 evol_tbl
 ```
 
+```{r evolvability-plot, fig.width=12, fig.height=4}
+# Figure 7: three-panel plot of mean evolvability, conditional evolvability,
+# autonomy with 95% HPD error bars (matches the manuscript figure).
+evol_wide <- evol_tbl %>%
+  filter(metric %in% c("e_mean", "c_mean", "a_mean")) %>%
+  mutate(
+    panel = recode(metric,
+                   e_mean = "A) Mean Evolvability",
+                   c_mean = "B) Conditional Evolvability",
+                   a_mean = "C) Autonomy"),
+    panel = factor(panel,
+                   levels = c("A) Mean Evolvability",
+                              "B) Conditional Evolvability",
+                              "C) Autonomy")),
+    Pop = factor(Pop, levels = c("AC", "BB", "BO", "HR"))
+  )
+
+ggplot(evol_wide, aes(Pop, mean)) +
+  geom_errorbar(aes(ymin = l95, ymax = u95), width = 0, linewidth = 0.6) +
+  geom_point(size = 3) +
+  scale_y_continuous(limits = c(0, 1)) +
+  facet_wrap(~ panel, nrow = 1) +
+  labs(x = "Population", y = NULL) +
+  theme_classic(base_size = 13)
+```
+
+# Eigenanalysis of G (Table 5 / S9 / S10)
+
+Per-draw eigendecomposition of G. Reports:
+
+- **trace(G)** — total additive genetic variance.
+- **λ₁ … λ₅** — eigenvalues (variance along orthogonal axes of trait space).
+- **Prop. PC1** — λ₁ / Σλ, the share of V_A captured by the leading axis.
+- **PC1 loadings** — trait contributions to the first eigenvector.
+
+Posterior means and 95% HPD intervals are reported. Note that eigenvectors
+flip sign arbitrarily across draws, so loadings are sign-aligned within each
+population to the loading vector of the posterior-mean G before averaging.
+
+```{r eigen-G}
+eigen_per_draw <- function(G_array) {
+  niter <- dim(G_array)[1]
+  # Reference loadings = eigenvectors of the posterior-mean G (for sign-align).
+  G_mean <- apply(G_array, c(2, 3), mean)
+  ref_vec <- eigen(G_mean, symmetric = TRUE)$vectors
+
+  trace_vec <- numeric(niter)
+  eigvals   <- matrix(NA_real_, niter, NT)
+  prop_pc1  <- numeric(niter)
+  loadings  <- array(NA_real_, dim = c(niter, NT, NT),
+                     dimnames = list(NULL, TRAITS, paste0("PC", 1:NT)))
+  for (k in seq_len(niter)) {
+    Gk <- G_array[k, , ]
+    ek <- eigen(Gk, symmetric = TRUE)
+    trace_vec[k] <- sum(diag(Gk))
+    eigvals[k, ] <- ek$values
+    prop_pc1[k]  <- ek$values[1] / sum(ek$values)
+    # Sign-align each eigenvector to the corresponding reference vector.
+    V <- ek$vectors
+    for (j in seq_len(NT)) {
+      if (sum(V[, j] * ref_vec[, j]) < 0) V[, j] <- -V[, j]
+    }
+    loadings[k, , ] <- V
+  }
+  list(trace = trace_vec, eigvals = eigvals,
+       prop_pc1 = prop_pc1, loadings = loadings)
+}
+
+eig_results <- purrr::map(post_main, ~ eigen_per_draw(.x$G_array))
+
+# Summary table per population (Table 5 analogue).
+eig_summary_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
+  lam_hpd <- apply(e$eigvals, 2, safe_hpd)
+  tibble(
+    Pop          = pop,
+    trace_mean   = mean(e$trace, na.rm = TRUE),
+    trace_l95    = safe_hpd(e$trace)[1],
+    trace_u95    = safe_hpd(e$trace)[2],
+    lambda1_mean = mean(e$eigvals[, 1], na.rm = TRUE),
+    lambda1_l95  = lam_hpd[1, 1], lambda1_u95 = lam_hpd[2, 1],
+    lambda2_mean = mean(e$eigvals[, 2], na.rm = TRUE),
+    lambda2_l95  = lam_hpd[1, 2], lambda2_u95 = lam_hpd[2, 2],
+    lambda3_mean = mean(e$eigvals[, 3], na.rm = TRUE),
+    lambda4_mean = mean(e$eigvals[, 4], na.rm = TRUE),
+    lambda5_mean = mean(e$eigvals[, 5], na.rm = TRUE),
+    prop_PC1_mean = mean(e$prop_pc1, na.rm = TRUE),
+    prop_PC1_l95  = safe_hpd(e$prop_pc1)[1],
+    prop_PC1_u95  = safe_hpd(e$prop_pc1)[2]
+  )
+})
+eig_summary_tbl
+
+# PC1 trait loadings (and HPDs) per population.
+pc1_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
+  pc1 <- e$loadings[, , 1]                # iter x NT
+  hp  <- apply(pc1, 2, safe_hpd)
+  tibble(
+    Pop   = pop,
+    trait = TRAITS,
+    loading_mean = colMeans(pc1, na.rm = TRUE),
+    loading_l95  = hp[1, ],
+    loading_u95  = hp[2, ],
+    main_contributor = abs(colMeans(pc1, na.rm = TRUE)) > 0.2
+  )
+})
+pc1_loadings_tbl
+
+# Compact PC1-contributor string per population (matches the manuscript table
+# format e.g. "δ13C (−), SLA (+), fecundity (−)").
+pc1_contrib_str <- pc1_loadings_tbl %>%
+  filter(main_contributor) %>%
+  mutate(sign  = ifelse(loading_mean > 0, "+", "−"),
+         label = sprintf("%s (%s)",
+                         recode(trait,
+                                corolla_z = "corolla",
+                                SLA_z     = "SLA",
+                                d13C_z    = "δ13C",
+                                msm_z     = "seed mass",
+                                fec_z     = "fecundity"),
+                         sign)) %>%
+  group_by(Pop) %>%
+  summarise(main_PC1_contributors = paste(label, collapse = ", "),
+            .groups = "drop")
+pc1_contrib_str
+```
+
 # Random Skewers with full posterior
 
 Pairwise r_RS between populations, propagating uncertainty by drawing one
@@ -701,24 +929,32 @@ posterior_skewers <- function(G_array_1, G_array_2,
                               n_skewers = N_SKEWERS) {
   i1 <- sample(seq_len(dim(G_array_1)[1]), n_draws, replace = TRUE)
   i2 <- sample(seq_len(dim(G_array_2)[1]), n_draws, replace = TRUE)
-  vapply(seq_len(n_draws), function(k) {
+  out <- vapply(seq_len(n_draws), function(k) {
     res <- tryCatch(
       RandomSkewers(G_array_1[i1[k], , ], G_array_2[i2[k], , ],
                     num.vectors = n_skewers),
-      error = function(e) c(correlation = NA_real_))
-    unname(res["correlation"])
-  }, numeric(1))
+      error = function(e) c(correlation = NA_real_, pvalue = NA_real_))
+    c(correlation = unname(res["correlation"]),
+      pvalue      = unname(res["pvalue"]))
+  }, numeric(2))
+  # vapply returns a 2 x n_draws matrix; transpose to n_draws x 2.
+  t(out)
 }
 
 pop_names <- names(post_main)
 pairs <- combn(pop_names, 2, simplify = FALSE)
 rs_tbl <- purrr::map_dfr(pairs, function(pp) {
-  r <- posterior_skewers(post_main[[pp[1]]]$G_array,
-                         post_main[[pp[2]]]$G_array)
+  rs <- posterior_skewers(post_main[[pp[1]]]$G_array,
+                          post_main[[pp[2]]]$G_array)
+  r <- rs[, "correlation"]
+  p <- rs[, "pvalue"]
   h <- safe_hpd(r)
   tibble(pop1 = pp[1], pop2 = pp[2],
          r_RS_mean = mean(r, na.rm = TRUE),
-         r_RS_l95  = h[1], r_RS_u95 = h[2])
+         r_RS_sd   = sd(r,   na.rm = TRUE),
+         r_RS_l95  = h[1], r_RS_u95 = h[2],
+         p_mean    = mean(p, na.rm = TRUE),
+         p_max     = suppressWarnings(max(p, na.rm = TRUE)))
 })
 rs_tbl
 ```
@@ -748,6 +984,37 @@ rA_long <- purrr::imap_dfr(post_main, function(p, pop) {
                       levels = unname(trait_labels))
     )
 })
+
+# Long-format r_A table — pairwise upper-triangle entries for each population
+# (Table S7 analogue). One row per (Pop, trait1, trait2) pair with posterior
+# mean, 95% HPD, and a flag for HPD-excludes-zero.
+rA_pairs_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  rA_arr <- p$rA_array
+  ut <- which(upper.tri(diag(NT)), arr.ind = TRUE)
+  purrr::map_dfr(seq_len(nrow(ut)), function(idx) {
+    i <- ut[idx, 1]; j <- ut[idx, 2]
+    x <- rA_arr[, i, j]
+    h <- safe_hpd(x)
+    tibble(Pop    = pop,
+           trait1 = TRAITS[i],
+           trait2 = TRAITS[j],
+           rA_mean = mean(x, na.rm = TRUE),
+           rA_l95  = h[1], rA_u95 = h[2],
+           sig     = isTRUE(h[1] > 0) || isTRUE(h[2] < 0))
+  })
+})
+rA_pairs_tbl
+
+# Formatted table matching original Rmd style: "mean [l95, u95]", bold if sig.
+rA_pairs_tbl %>%
+  mutate(
+    label = sprintf("%.2f [%.2f, %.2f]", rA_mean, rA_l95, rA_u95),
+    label = ifelse(sig, paste0("**", label, "**"), label),
+    trait1 = factor(trait1, levels = TRAITS),
+    trait2 = factor(trait2, levels = TRAITS)
+  ) %>%
+  select(Pop, trait1, trait2, label) %>%
+  tidyr::pivot_wider(names_from = trait2, values_from = label)
 
 ggplot(rA_long, aes(trait1, trait2, fill = rA)) +
   geom_tile(aes(alpha = ifelse(sig, 1, 0.35)), colour = NA) +
