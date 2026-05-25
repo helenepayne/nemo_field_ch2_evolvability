@@ -27,6 +27,9 @@ data/
 *.tif
 *.tiff
 
+# Claude Code settings (local to this machine)
+.claude/
+
 # Quercus fortran build artifacts (Topend etc. produce these locally)
 *.o
 *.so

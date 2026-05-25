@@ -841,6 +841,7 @@ eigen_per_draw <- function(G_array) {
   trace_vec <- numeric(niter)
   eigvals   <- matrix(NA_real_, niter, NT)
   prop_pc1  <- numeric(niter)
+  prop_pc2  <- numeric(niter)
   loadings  <- array(NA_real_, dim = c(niter, NT, NT),
                      dimnames = list(NULL, TRAITS, paste0("PC", 1:NT)))
   for (k in seq_len(niter)) {
@@ -849,6 +850,7 @@ eigen_per_draw <- function(G_array) {
     trace_vec[k] <- sum(diag(Gk))
     eigvals[k, ] <- ek$values
     prop_pc1[k]  <- ek$values[1] / sum(ek$values)
+    prop_pc2[k]  <- ek$values[2] / sum(ek$values)
     # Sign-align each eigenvector to the corresponding reference vector.
     V <- ek$vectors
     for (j in seq_len(NT)) {
@@ -857,12 +859,12 @@ eigen_per_draw <- function(G_array) {
     loadings[k, , ] <- V
   }
   list(trace = trace_vec, eigvals = eigvals,
-       prop_pc1 = prop_pc1, loadings = loadings)
+       prop_pc1 = prop_pc1, prop_pc2 = prop_pc2, loadings = loadings)
 }
 
 eig_results <- purrr::map(post_main, ~ eigen_per_draw(.x$G_array))
 
-# Summary table per population (Table 5 analogue).
+# Summary table per population (Table 5 / S9 analogue).
 eig_summary_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
   lam_hpd <- apply(e$eigvals, 2, safe_hpd)
   tibble(
@@ -879,12 +881,15 @@ eig_summary_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
     lambda5_mean = mean(e$eigvals[, 5], na.rm = TRUE),
     prop_PC1_mean = mean(e$prop_pc1, na.rm = TRUE),
     prop_PC1_l95  = safe_hpd(e$prop_pc1)[1],
-    prop_PC1_u95  = safe_hpd(e$prop_pc1)[2]
+    prop_PC1_u95  = safe_hpd(e$prop_pc1)[2],
+    prop_PC2_mean = mean(e$prop_pc2, na.rm = TRUE),
+    prop_PC2_l95  = safe_hpd(e$prop_pc2)[1],
+    prop_PC2_u95  = safe_hpd(e$prop_pc2)[2]
   )
 })
 eig_summary_tbl
 
-# PC1 trait loadings (and HPDs) per population.
+# PC1 trait loadings (and HPDs) per population (Table S9 analogue).
 pc1_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
   pc1 <- e$loadings[, , 1]                # iter x NT
   hp  <- apply(pc1, 2, safe_hpd)
@@ -899,23 +904,45 @@ pc1_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
 })
 pc1_loadings_tbl
 
+# PC2 trait loadings (and HPDs) per population (Table S10 analogue).
+pc2_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
+  pc2 <- e$loadings[, , 2]                # iter x NT
+  hp  <- apply(pc2, 2, safe_hpd)
+  tibble(
+    Pop   = pop,
+    trait = TRAITS,
+    loading_mean = colMeans(pc2, na.rm = TRUE),
+    loading_l95  = hp[1, ],
+    loading_u95  = hp[2, ],
+    main_contributor = abs(colMeans(pc2, na.rm = TRUE)) > 0.2
+  )
+})
+pc2_loadings_tbl
+
 # Compact PC1-contributor string per population (matches the manuscript table
 # format e.g. "δ13C (−), SLA (+), fecundity (−)").
-pc1_contrib_str <- pc1_loadings_tbl %>%
-  filter(main_contributor) %>%
-  mutate(sign  = ifelse(loading_mean > 0, "+", "−"),
-         label = sprintf("%s (%s)",
-                         recode(trait,
-                                corolla_z = "corolla",
-                                SLA_z     = "SLA",
-                                d13C_z    = "δ13C",
-                                msm_z     = "seed mass",
-                                fec_z     = "fecundity"),
-                         sign)) %>%
-  group_by(Pop) %>%
-  summarise(main_PC1_contributors = paste(label, collapse = ", "),
-            .groups = "drop")
+make_contrib_str <- function(loadings_tbl) {
+  loadings_tbl %>%
+    filter(main_contributor) %>%
+    mutate(sign  = ifelse(loading_mean > 0, "+", "−"),
+           label = sprintf("%s (%s)",
+                           recode(trait,
+                                  corolla_z = "corolla",
+                                  SLA_z     = "SLA",
+                                  d13C_z    = "δ13C",
+                                  msm_z     = "seed mass",
+                                  fec_z     = "fecundity"),
+                           sign)) %>%
+    group_by(Pop) %>%
+    summarise(contributors = paste(label, collapse = ", "), .groups = "drop")
+}
+pc1_contrib_str <- make_contrib_str(pc1_loadings_tbl) %>%
+  rename(main_PC1_contributors = contributors)
 pc1_contrib_str
+
+pc2_contrib_str <- make_contrib_str(pc2_loadings_tbl) %>%
+  rename(main_PC2_contributors = contributors)
+pc2_contrib_str
 ```
 
 # Random Skewers with full posterior

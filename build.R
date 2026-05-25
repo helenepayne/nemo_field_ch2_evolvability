@@ -12,6 +12,8 @@ if (!requireNamespace("here", quietly = TRUE)) {
 setwd(here::here())
 
 source("fetch_dryad.R")
+# fetch_dryad() is a no-op for any file already present in data/ — it only
+# contacts the Dryad API for files that are missing.
 fetch_dryad(c("AC_compiledsheet_full_2022.csv",
               "BB_compiledsheet_full_2022.csv",
               "BO_compiledsheet_full_2022.csv",
