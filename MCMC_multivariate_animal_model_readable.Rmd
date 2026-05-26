@@ -461,7 +461,11 @@ Two priors are used:
 
 - **PX (parameter-expanded)** — weakly informative on correlations; this is
   the default for the main analysis. `alpha.V = diag(NT) * 1000` lets the
-  scale of V_A and V_M be effectively unbounded.
+  scale of V_A and V_M be effectively unbounded. Applied to all four G
+  components (animal, dam, block, transect). With only 3 blocks per site
+  the inverse-Gamma-like prior used previously (`nu = 0.002`) caused R̂ > 1.2
+  for HR block components; the PX form removes that pathology without
+  committing to high or low V_block.
 - **IW (inverse-Wishart, V = I, ν = NT)** — the original analysis's prior,
   retained as a sensitivity check (see §13.3).
 
@@ -481,14 +485,22 @@ fit_animal_model <- function(prep, peds, prior_type = "px",
   dat$transect_f <- factor(dat$transect_f)
 
   if (prior_type == "px") {
+    # Parameter expansion on every G component, including block and transect.
+    # With 3 blocks per site, the inverse-Gamma-like (nu=0.002) prior on
+    # V_block previously caused R-hat > 1.2 for HR block components. PX
+    # widens the support without committing to a high or low variance,
+    # which is what Gelman (2006) recommends for variance components with
+    # few random-effect levels.
     prior <- list(
       G = list(
         G1 = list(V = diag(NT), nu = NT, alpha.mu = rep(0, NT),
                   alpha.V = diag(NT) * 1000),     # animal (V_A)
         G2 = list(V = diag(NT), nu = NT, alpha.mu = rep(0, NT),
                   alpha.V = diag(NT) * 1000),     # dam (V_M)
-        G3 = list(V = diag(NT), nu = 0.002),      # block (idh)
-        G4 = list(V = diag(NT), nu = 0.002)       # transect (idh)
+        G3 = list(V = diag(NT), nu = NT, alpha.mu = rep(0, NT),
+                  alpha.V = diag(NT) * 1000),     # block (idh, PX)
+        G4 = list(V = diag(NT), nu = NT, alpha.mu = rep(0, NT),
+                  alpha.V = diag(NT) * 1000)      # transect (idh, PX)
       ),
       R = list(V = diag(NT), nu = NT)
     )
@@ -1149,6 +1161,10 @@ drawing one posterior sample from each of the two populations per
 comparison (rather than comparing only the posterior means).
 
 ```{r random-skewers}
+# evolqg::RandomSkewers() returns a named numeric c(correlation, probability)
+# when called on a pair of matrices — NOT c(correlation, pvalue). The earlier
+# version pulled res["pvalue"], which is always NA, so the rs_tbl p-value
+# columns came out as NaN / -Inf. Fixed below.
 posterior_skewers <- function(G_array_1, G_array_2,
                               n_draws = N_POST_DRAWS_FOR_SKEWERS,
                               n_skewers = N_SKEWERS) {
@@ -1158,9 +1174,9 @@ posterior_skewers <- function(G_array_1, G_array_2,
     res <- tryCatch(
       RandomSkewers(G_array_1[i1[k], , ], G_array_2[i2[k], , ],
                     num.vectors = n_skewers),
-      error = function(e) c(correlation = NA_real_, pvalue = NA_real_))
+      error = function(e) c(correlation = NA_real_, probability = NA_real_))
     c(correlation = unname(res["correlation"]),
-      pvalue      = unname(res["pvalue"]))
+      probability = unname(res["probability"]))
   }, numeric(2))
   t(out)
 }
@@ -1171,7 +1187,7 @@ rs_tbl <- purrr::map_dfr(pairs, function(pp) {
   rs <- posterior_skewers(post_main[[pp[1]]]$G_array,
                           post_main[[pp[2]]]$G_array)
   r <- rs[, "correlation"]
-  p <- rs[, "pvalue"]
+  p <- rs[, "probability"]
   h <- safe_hpd(r)
   tibble(pop1 = pp[1], pop2 = pp[2],
          r_RS_mean = mean(r, na.rm = TRUE),
@@ -1230,7 +1246,8 @@ beta_pheno <- function(prep, total_fitness = FALSE) {
     statistic = ct[, "t value"],
     p.value   = ct[, "Pr(>|t|)"],
     conf.low  = ct[, "Estimate"] - q * ct[, "Std. Error"],
-    conf.high = ct[, "Estimate"] + q * ct[, "Std. Error"]
+    conf.high = ct[, "Estimate"] + q * ct[, "Std. Error"],
+    n         = nrow(d)
   ) %>%
     filter(term != "(Intercept)") %>%
     left_join(vif_df, by = "term")
@@ -1377,6 +1394,13 @@ explosive value. `beta_G_median` is robust to remaining tail draws; the
 Filled symbols mark gradients whose 95% CI / HPD excludes zero.
 
 ```{r beta-comparison-plot, fig.width=11, fig.height=5}
+# Per-population n from β_P (n is constant across traits within a pop after
+# listwise deletion). Used to annotate the y-axis so BB's n=36 is visible.
+n_by_pop <- beta_P_tbl %>%
+  group_by(Pop) %>%
+  summarise(n = max(n, na.rm = TRUE), .groups = "drop") %>%
+  mutate(pop_label = paste0(Pop, " (n=", n, ")"))
+
 plot_dat <- bind_rows(
   beta_P_tbl %>%
     transmute(Pop, trait = term,
@@ -1387,6 +1411,7 @@ plot_dat <- bind_rows(
               mean = beta_G_median, l95 = beta_G_l95, u95 = beta_G_u95,
               type = "Genetic β_G")
 ) %>%
+  left_join(n_by_pop %>% select(Pop, pop_label), by = "Pop") %>%
   mutate(
     sig = (l95 > 0) | (u95 < 0),
     trait = recode_factor(trait,
@@ -1394,7 +1419,7 @@ plot_dat <- bind_rows(
               d13C_z    = "δ13C",    msm_z = "msm")
   )
 
-ggplot(plot_dat, aes(mean, Pop, colour = type, shape = sig)) +
+ggplot(plot_dat, aes(mean, pop_label, colour = type, shape = sig)) +
   geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
   geom_errorbarh(aes(xmin = l95, xmax = u95),
                  height = 0.2, position = position_dodge(width = 0.5)) +
@@ -1563,8 +1588,10 @@ fit_animal_model_subset <- function(prep, peds, traits_keep,
                 alpha.V = diag(nt_k) * 1000),  # animal
       G2 = list(V = diag(nt_k), nu = nt_k, alpha.mu = rep(0, nt_k),
                 alpha.V = diag(nt_k) * 1000),  # dam
-      G3 = list(V = diag(nt_k), nu = 0.002),   # block
-      G4 = list(V = diag(nt_k), nu = 0.002)    # transect
+      G3 = list(V = diag(nt_k), nu = nt_k, alpha.mu = rep(0, nt_k),
+                alpha.V = diag(nt_k) * 1000),  # block (PX, matches main)
+      G4 = list(V = diag(nt_k), nu = nt_k, alpha.mu = rep(0, nt_k),
+                alpha.V = diag(nt_k) * 1000)   # transect (PX, matches main)
     ),
     R = list(V = diag(nt_k), nu = nt_k)
   )
@@ -1749,7 +1776,137 @@ prior_compare_wide <- prior_compare %>%
 prior_compare_wide
 ```
 
-# 14 · Save tables to disk
+# 14 · Limitations and constraints on interpretation
+
+Several features of the design and posterior structure constrain which
+inferences this analysis supports. They are documented here so the strength
+of each Results claim can be weighed against them.
+
+## 14.1 Sampling design limits resolution of off-diagonal **G**
+
+Each population is sampled at ~40–49 sires, ~3 dams per sire, and ~3
+F-plants per dam (Table 03_sample_sizes). With this design, Falconer's
+approximation gives SE(*h*²) ≈ 2/√(n_dams × n_off/dam) ≈ 0.10–0.12 per
+trait — sufficient to resolve heritabilities of *h*² ≳ 0.3 but not lower.
+The same data must support 10 off-diagonal entries in each 5 × 5 **G**, and
+the posteriors confirm the resulting power limit: only 1 of 40 pairwise
+*r*_A values has an HPD that excludes zero (HR δ¹³C × mean seed mass,
+*r*_A = 0.58 [0.25, 0.87]). The remaining 39 span roughly [−0.8, +0.8],
+meaning the data cannot distinguish strong positive from strong negative
+correlations. Comparisons of **G** structure across populations (Random
+Skewers, eigenanalysis, β_G) operate on this floor of resolution.
+
+## 14.2 Variance components are prior-sensitive for low-data populations
+
+The PX/IW comparison in §13.3 shows V_A and V_M shift 3- to 8-fold between
+priors at BB and for several AC traits, with non-overlapping HPDs (Table
+13_sensitivity_prior_wide). At BB, every V_A and most V_M components are
+prior-driven; at AC, SLA and fecundity components are prior-driven; HR
+δ¹³C and HR mean seed mass are stable across priors and so is AC δ¹³C.
+Heritabilities inherit this dependence: we treat *h*² > 0 as a credible
+finding only where the lower HPD bound is meaningfully above zero under
+*both* priors. By that standard the data-driven heritabilities are HR
+δ¹³C, HR mean seed mass, and AC δ¹³C. All other reported heritabilities
+should be read as posterior summaries under the PX prior rather than
+data-driven point estimates.
+
+## 14.3 Genetic selection gradients β_G are precision-limited
+
+The Robertson–Price identity is the right object for predicting
+evolutionary change, but its precision is bounded by that of off-diagonal
+**G**. None of 16 β_G estimates has an HPD that excludes zero, and HPD
+widths span 1.5–10 standardised units. We protect against occasional
+near-singular **G**_zz draws via `rcond(G_zz) < 1e-10` exclusion and report
+posterior medians rather than means (§11.2). Even with these fixes the β_G
+intervals are too wide to test alignment with β_P or with environmental
+predictors. β_G results are best read as confirming no clear conflict with
+β_P given available precision, not as positive evidence of alignment.
+
+## 14.4 BB phenotypic selection is underpowered
+
+After listwise deletion, β_P at BB rests on n = 36 complete cases
+(corolla, SLA, δ¹³C, msm, fec all non-missing) versus n = 185 at AC, 62 at
+BO, 296 at HR (Table 11_beta_P_fit_summary). The marginal global *F* and
+individual coefficient significance for BB are largely small-sample
+artefacts and should be read alongside the n column.
+
+## 14.5 Inference is conditional on survival
+
+Trait values are measured only on F-plants — individuals that survived to
+flowering. Where no designated F-plant survived in a segment, the first
+surviving sibling was substituted; segments with no survivors enter the
+fitness regression with W = 0 but contribute no trait data. The **G**
+matrices estimated here are therefore **post-viability-selection G**, not
+the parental **G** that determines next-generation response. If viability
+selection acts on the same traits, our **G** systematically understates
+pre-selection genetic variance and the implied response to fecundity
+selection.
+
+## 14.6 The viability GLM is a sibship-level analysis
+
+Because F-plants are themselves survivors (or the first row in all-dead
+segments), the binomial GLM regressing segment-level survival counts on
+F-plant traits is not a Lande viability gradient. It asks whether the
+surviving focal sib's trait predicts the survival fraction of the whole
+segment — a sibship-level association, not individual viability selection.
+This is the closest substitute possible given the protocol (no traits were
+measured pre-mortality); it should be reported accordingly.
+
+## 14.7 Other constraints
+
+- **PC2 is unreliable in all four populations** (Table 08_pc2_reliability).
+  λ₂ and λ₃ HPDs overlap at every site, so PC2 eigenvectors are not
+  stably identified across draws. Only PC1 contributions are interpreted.
+
+- **Block variance is weakly identified from three levels.** With three
+  blocks per site, V_block carries little information from the data. An
+  earlier version of the model used a near-improper inverse-Gamma-like
+  prior (`nu = 0.002`) on the block component, which produced R̂ > 1.2 for
+  five HR block parameters. The current PX prior on `idh(trait):block`
+  (and on `idh(trait):transect_f`) — `nu = NT`, `alpha.V = 1000·I` — fixes
+  that mixing pathology without committing to a high or low V_block
+  (Gelman 2006). The fundamental identifiability issue remains: V_block
+  cannot be precisely estimated from three random levels regardless of
+  prior. Block remains in the model as a necessary nuisance term so that
+  V_block is not absorbed into V_A or V_R, but V_block itself is not
+  reported as a target quantity.
+
+- **BB depends heavily on multivariate-normal imputation.** SLA, msm, and
+  δ¹³C are 49–75% missing at BB. The trait-drop sensitivity in §13.2
+  shows surviving *r*_A entries shift by at most 0.025 when SLA or msm is
+  omitted, providing some reassurance that the 5-trait **G** is not driven
+  by imputation artefacts — but it does not validate the imputed values
+  themselves.
+
+## 14.8 Defensible inferences from these data
+
+Taking the constraints above together:
+
+1. **Heritable variation in δ¹³C and mean seed mass at HR**; **δ¹³C at
+   AC**. These are the heritabilities whose lower HPDs are appreciably
+   above zero under both PX and IW priors.
+
+2. **A credible additive genetic correlation between δ¹³C and mean seed
+   mass at HR** (*r*_A = 0.58, HPD excludes 0; only such correlation in
+   the dataset).
+
+3. **Phenotypic selection patterns at AC and HR** favouring more negative
+   δ¹³C and lower mean seed mass. β_P at AC has n = 185 and significant
+   HC3 coefficients for both δ¹³C and msm; HR has n = 296 and a similar
+   pattern.
+
+4. **BB and BO are essentially unpowered** for selection and **G**-matrix
+   structure inferences and should be reported as such.
+
+5. **No credible evidence** for or against alignment of β_P with β_G in
+   any population — the β_G intervals are too wide.
+
+These are the claims the data currently support. The Rmd documents
+everything else (full **G** matrices, eigenanalyses, evolvability metrics,
+Random Skewers, full β_P/β_G tables, prior sensitivity) so reviewers can
+assess them against the limitations above.
+
+# 15 · Save tables to disk
 
 Every named table referenced in the document is written here to `tables/`
 as a CSV. Figures are written to `figures/` automatically via the
@@ -1820,7 +1977,7 @@ message("Wrote ", length(list.files("tables", pattern = "\\.csv$")),
         " PNG files to figures/")
 ```
 
-# 15 · Session info
+# 16 · Session info
 
 ```{r session}
 sessionInfo()
