@@ -1,0 +1,1697 @@
+---
+title: "Multivariate Animal Model"
+author: "Helen Payne"
+date: "2026-05-20"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# 1 · Motivation
+
+This document fits a multivariate Bayesian animal model to four *Nemophila
+menziesii* populations (AC, BB, BO, HR) and uses the resulting **G** matrices
+to characterise the genetic architecture of five focal traits — corolla
+diameter, specific leaf area (SLA), δ¹³C, mean seed mass (msm), and
+fecundity — and the selection acting on them.
+
+It is a re-implementation of an earlier analysis that the manuscript review
+flagged on a number of methodological points. The structure of this document
+walks through each step of the analysis in the order in which it must be
+executed, with a short explanation before each block of code.
+
+The five biggest changes versus the original analysis are:
+
+1. **Maternal (dam) random effect** — separates V_A from V_maternal in the
+   paternal half-sib design.
+2. **Block and within-block spatial random effects** — the field design has 3
+   blocks per site; treating spatial structure as fixed factors blew up at BB
+   (158 Locations × 5 traits ≈ 775 parameters for ~441 plants).
+3. **Genetic selection gradient β_G** — computed from the posterior of **G**
+   via the Robertson–Price identity, alongside the standard Lande–Arnold β_P.
+4. **Full posterior propagation** — evolvability metrics, eigenanalysis, and
+   Random Skewers are computed per draw, not on the posterior mean of **G**.
+5. **Deterministic data cleaning** — no unseeded `sample()` calls; the
+   F-plant substitution rule is fully reproducible.
+
+The remainder is laid out as: setup → data → model → diagnostics → posterior
+quantities → genetic correlations → eigenanalysis → evolvability → population
+comparison → selection → viability → sensitivity analyses.
+
+# 2 · Setup
+
+## 2.1 Libraries and namespace hygiene
+
+`evolqg` (for Random Skewers) loads `plyr`, which masks several `dplyr`
+verbs. The `conflicted` package below forces `dplyr` to win whenever both
+versions are on the search path.
+
+```{r libs}
+options(rgl.useNULL = TRUE)   # evolqg pulls in rgl; avoid X11 dependency
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(here)
+  library(MCMCglmm)
+  library(nadiv)
+  library(coda)
+  library(evolqg)
+  library(broom)
+  library(patchwork)
+  library(car)        # vif()
+  library(sandwich)   # HC3 robust variance
+  library(lmtest)     # coeftest / waldtest with vcov.
+})
+
+suppressPackageStartupMessages(library(conflicted))
+for (fn in c("mutate", "rename", "filter", "select", "summarise", "summarize",
+             "arrange", "group_by", "ungroup", "transmute", "count", "tally",
+             "distinct", "bind_rows", "bind_cols", "recode")) {
+  try(conflicted::conflict_prefer(fn, "dplyr", quiet = TRUE), silent = TRUE)
+}
+
+set.seed(20260520)
+```
+
+## 2.2 Run-time configuration
+
+`TEST_RUN <- TRUE` runs short MCMC chains (1–2 min total) for debugging.
+Set to `FALSE` for the publication-quality fit; the difference is roughly
+two orders of magnitude in run time.
+
+```{r runtime-config}
+TEST_RUN <- FALSE
+
+if (TEST_RUN) {
+  N_CHAINS <- 2
+  NITT     <- 6000
+  BURNIN   <- 1000
+  THIN     <- 5
+  N_SKEWERS <- 200
+  N_POST_DRAWS_FOR_SKEWERS <- 100   # subsample posterior to speed up
+} else {
+  N_CHAINS <- 3
+  NITT     <- 200000
+  BURNIN   <- 20000
+  THIN     <- 100
+  N_SKEWERS <- 2000
+  N_POST_DRAWS_FOR_SKEWERS <- 1000
+}
+```
+
+## 2.3 Population configuration and trait list
+
+Each population uses a slightly different field layout. AC has 10 seeds per
+1-m segment and uses transects; BB has 8 seeds and uses 158 named
+Locations; BO and HR each have 8 seeds and use transects. AC also includes
+a watered-treatment block ("W") that is excluded from this analysis.
+
+```{r pop-config}
+POP_CONFIG <- list(
+  AC = list(file = "data/AC_compiledsheet_full_2022.csv",
+            spatial = "Transect", seeds_sown = 10, exclude_blocks = "W"),
+  BB = list(file = "data/BB_compiledsheet_full_2022.csv",
+            spatial = "Location", seeds_sown = 8,  exclude_blocks = "W"),
+  BO = list(file = "data/BO_compiledsheet_full_2022.csv",
+            spatial = "Transect", seeds_sown = 8,  exclude_blocks = "W"),
+  HR = list(file = "data/HR_compiledsheet_full_2022.csv",
+            spatial = "Transect", seeds_sown = 8,  exclude_blocks = "W")
+)
+
+TRAITS <- c("corolla_z", "SLA_z", "d13C_z", "msm_z", "fec_z")
+NT     <- length(TRAITS)
+```
+
+## 2.4 Pull data from Dryad
+
+`fetch_dryad()` downloads the four compiled sheets from Dryad
+(doi:10.5061/dryad.pvmcvdp1p) into `data/` if they are not already there.
+When the Dryad package is still private, files placed in `data/` by hand
+take precedence and the fetch is a no-op.
+
+```{r fetch-data}
+source(here::here("fetch_dryad.R"))
+fetch_dryad(c("AC_compiledsheet_full_2022.csv",
+              "BB_compiledsheet_full_2022.csv",
+              "BO_compiledsheet_full_2022.csv",
+              "HR_compiledsheet_full_2022.csv"))
+```
+
+# 3 · Data preparation
+
+## 3.1 The per-population cleaning function
+
+`prep_population()` does four things, in order:
+
+1. **Normalises donor and recipient labels** so the same dam appears under
+   one name in the pedigree (the raw sheets use mixed prefixes).
+2. **Repairs the survival flag**. If a plant has `total_fruits > 0` but is
+   marked `surv_to_flower == 0`, it clearly survived to flowering — flip it
+   to 1. The `!is.na(total_fruits) &` guard keeps NAs as NAs (otherwise
+   `ifelse(NA, …)` would silently turn recorded 0s into NAs).
+3. **Builds a true segment key**: `paste(Block, Recipient, spatial_unit)`.
+   Earlier versions used `ceiling(row_number() / 8)` to bin segments, which
+   silently mixed AC segments together (AC has 10 seeds per segment, not 8).
+   The current key is robust across populations.
+4. **Picks the F-plant deterministically**. The original protocol designated
+   one focal plant per segment for trait measurement, but if that plant
+   died before flowering a sibling was substituted. We reproduce that rule
+   by promoting the **first surviving sibling** in row order, and as a last
+   resort the first row (which will then enter the model with W = 0).
+
+The output is a list with `all` (all rows, used for the viability GLM) and
+`fp` (F-plants only, used for the animal model).
+
+```{r prep-fn}
+prep_population <- function(pop_code, cfg) {
+  fpath <- here::here(cfg[["file"]])
+  raw <- readr::read_csv(fpath, show_col_types = FALSE)
+  spatial <- cfg$spatial
+
+  if (length(cfg$exclude_blocks) > 0) {
+    raw <- raw %>% filter(!(Block %in% cfg$exclude_blocks))
+  }
+
+  raw <- raw %>%
+    mutate(
+      Donor     = paste0("Donor_",     pop_code, "_",
+                         str_remove(Donor,
+                                    paste0("^Donor_", pop_code, "_|^",
+                                           pop_code, "_"))),
+      Recipient = paste0("Recipient_", pop_code, "_",
+                         str_remove(Recipient,
+                                    paste0("^Recipient_", pop_code, "_|^",
+                                           pop_code, "_"))),
+      F_plant   = ifelse(F_plant == TRUE, 1L, 0L),
+      F_plant   = ifelse(is.na(F_plant), 0L, F_plant),
+      surv_to_flower = ifelse(!is.na(total_fruits) & total_fruits > 0 &
+                                surv_to_flower == 0,
+                              1, surv_to_flower)
+    ) %>%
+    rename(spatial_unit = !!sym(spatial)) %>%
+    mutate(spatial_unit = suppressWarnings(as.numeric(spatial_unit))) %>%
+    filter(!is.na(spatial_unit)) %>%
+    mutate(
+      sample_ID = str_c(Year, Donor, Recipient, Gen,
+                        str_pad(spatial_unit, width = 3, pad = "0"),
+                        Plant_ID, sep = "_"),
+      sample_ID  = str_replace(sample_ID, "^([^_]*)_", "\\1-"),
+      segment_id = paste(Block, Recipient, spatial_unit, sep = "_")
+    )
+
+  # Deterministic F_plant assignment: where no plant in a segment is flagged
+  # as F_plant, take the first surviving sibling. If none survived, take the
+  # first row (which will contribute W = 0 to the selection analysis).
+  raw <- raw %>%
+    group_by(segment_id) %>%
+    mutate(
+      seg_has_fplant = sum(F_plant) > 0,
+      seg_first_surv = which(surv_to_flower == 1)[1],
+      seg_pick_idx   = ifelse(!is.na(seg_first_surv), seg_first_surv, 1L),
+      F_plant        = ifelse(!seg_has_fplant & row_number() == seg_pick_idx,
+                              1L, F_plant)
+    ) %>%
+    ungroup() %>%
+    select(-seg_has_fplant, -seg_first_surv, -seg_pick_idx)
+
+  # Segment-level survival count (number alive out of seeds_sown).
+  raw <- raw %>%
+    group_by(segment_id) %>%
+    mutate(total_surv_to_flower = sum(surv_to_flower, na.rm = TRUE)) %>%
+    ungroup()
+
+  fp <- raw %>% filter(F_plant == 1L) %>%
+    mutate(
+      animal     = sample_ID,
+      dam        = Recipient,
+      sire       = Donor,
+      block      = factor(Block),
+      transect_f = factor(spatial_unit),
+      corolla    = corolla_diam_mm_SEG,
+      SLA        = SLA_SEG,
+      d13C       = d13C_SEG,
+      msm        = msm_all,
+      fec        = est_fecundity,
+      surv       = surv_to_flower
+    )
+
+  # Centre+scale to mean 0 / sd 1 (z-scaling).
+  z <- function(x) {
+    m <- mean(x, na.rm = TRUE); s <- sd(x, na.rm = TRUE)
+    if (!is.finite(s) || s == 0) return(rep(NA_real_, length(x)))
+    (x - m) / s
+  }
+  fp <- fp %>%
+    mutate(
+      corolla_z = z(corolla),
+      SLA_z     = z(SLA),
+      d13C_z    = z(d13C),
+      msm_z     = z(msm),
+      fec_z     = z(fec)
+    )
+
+  list(all = raw, fp = fp, pop = pop_code, spatial = spatial)
+}
+```
+
+## 3.2 Building the pedigree
+
+`MCMCglmm` needs an inverse-relatedness matrix Aⁱⁿᵛ. We construct it
+deterministically from the F-plants: each plant's parents are its `Donor`
+(sire) and `Recipient` (dam); founder dams and sires that never appear as
+offspring are added as parentless rows so the pedigree closes.
+
+```{r prep-ped-fn}
+build_pedigree <- function(fp) {
+  ped <- tibble(
+    animal = as.character(fp$sample_ID),
+    dam    = fp$Recipient,
+    sire   = fp$Donor
+  )
+  missing_parents <- setdiff(unique(c(ped$dam, ped$sire)), ped$animal)
+  ped2 <- bind_rows(
+    ped,
+    tibble(animal = missing_parents,
+           dam = NA_character_, sire = NA_character_)
+  ) %>% distinct(animal, .keep_all = TRUE)
+  ped_ord <- prepPed(as.data.frame(ped2))
+  Ainv <- MCMCglmm::inverseA(ped_ord)$Ainv
+  list(ped = ped_ord, Ainv = Ainv)
+}
+```
+
+## 3.3 Run the cleaning across all four populations
+
+```{r load-all}
+pop_data <- purrr::map(names(POP_CONFIG),
+                       ~ prep_population(.x, POP_CONFIG[[.x]]))
+names(pop_data) <- names(POP_CONFIG)
+```
+
+## 3.4 Sample sizes
+
+How many sown plants, F-plants, sires, dams, and blocks per population?
+This table grounds every effective-sample-size discussion downstream — if
+ESS looks low, look here first.
+
+```{r sample-sizes}
+sample_sizes <- purrr::map_dfr(pop_data, function(d) {
+  fp <- d$fp
+  tibble(
+    Pop          = d$pop,
+    n_sown       = nrow(d$all),
+    n_survivors  = sum(d$all$surv_to_flower == 1, na.rm = TRUE),
+    n_fitness_plants = nrow(fp),
+    n_sires      = length(unique(fp$sire)),
+    n_dams       = length(unique(fp$dam)),
+    n_blocks     = length(unique(fp$block)),
+    n_spatial    = length(unique(fp$transect_f)),
+    n_corolla    = sum(!is.na(fp$corolla_z)),
+    n_SLA        = sum(!is.na(fp$SLA_z)),
+    n_d13C       = sum(!is.na(fp$d13C_z)),
+    n_msm        = sum(!is.na(fp$msm_z)),
+    n_fec        = sum(!is.na(fp$fec_z)),
+    n_complete_4traits_fec =
+      sum(complete.cases(fp[, c("corolla_z", "SLA_z", "d13C_z",
+                                "msm_z", "fec_z")]))
+  )
+})
+sample_sizes
+```
+
+## 3.5 Missingness per trait
+
+MCMCglmm imputes missing trait values under the joint multivariate Gaussian
+likelihood (conditional on G, V_M, V_block, V_transect, V_R). Traits with
+high missingness contribute correspondingly less direct information to G
+and its derived quantities. Note especially BB (SLA ~69%, msm ~75%) and
+BO (SLA ~49%, msm ~66%) — the BB section below has a dedicated trait-drop
+sensitivity check.
+
+```{r missingness-table}
+missingness_tbl <- purrr::imap_dfr(pop_data, function(d, pop) {
+  fp <- d$fp
+  tibble(
+    Pop         = pop,
+    trait       = TRAITS,
+    n_observed  = sapply(TRAITS, function(t) sum(!is.na(fp[[t]]))),
+    n_missing   = sapply(TRAITS, function(t) sum(is.na(fp[[t]]))),
+    pct_missing = round(100 * sapply(TRAITS,
+                                     function(t) mean(is.na(fp[[t]]))), 1)
+  )
+})
+missingness_tbl
+```
+
+## 3.6 Raw trait means (Figure 4 / Table S3)
+
+Before standardising, glance at the raw-scale means. These mirror Figure 4
+and Table S3 of the manuscript.
+
+```{r trait-means-table}
+trait_means_tbl <- purrr::imap_dfr(pop_data, function(d, pop) {
+  fp <- d$fp
+  tibble(
+    Pop  = pop,
+    trait = c("corolla_diam_mm", "SLA", "d13C", "mean_seed_mass_mg",
+              "fecundity"),
+    mean = c(mean(fp$corolla, na.rm = TRUE),
+             mean(fp$SLA,     na.rm = TRUE),
+             mean(fp$d13C,    na.rm = TRUE),
+             mean(fp$msm,     na.rm = TRUE),
+             mean(fp$fec,     na.rm = TRUE)),
+    se   = c(sd(fp$corolla, na.rm = TRUE) / sqrt(sum(!is.na(fp$corolla))),
+             sd(fp$SLA,     na.rm = TRUE) / sqrt(sum(!is.na(fp$SLA))),
+             sd(fp$d13C,    na.rm = TRUE) / sqrt(sum(!is.na(fp$d13C))),
+             sd(fp$msm,     na.rm = TRUE) / sqrt(sum(!is.na(fp$msm))),
+             sd(fp$fec,     na.rm = TRUE) / sqrt(sum(!is.na(fp$fec)))),
+    n    = c(sum(!is.na(fp$corolla)), sum(!is.na(fp$SLA)),
+             sum(!is.na(fp$d13C)),    sum(!is.na(fp$msm)),
+             sum(!is.na(fp$fec)))
+  )
+})
+trait_means_tbl
+```
+
+```{r trait-means-plot, fig.width=11, fig.height=3.5}
+trait_lbl <- c(corolla_diam_mm   = "corolla diameter (mm)",
+               SLA               = "SLA (mm^2/mg)",
+               d13C              = "δ13C (‰)",
+               mean_seed_mass_mg = "mean seed mass (mg)",
+               fecundity         = "fecundity (filled seeds)")
+
+trait_means_tbl %>%
+  mutate(trait = factor(recode(trait, !!!trait_lbl),
+                        levels = unname(trait_lbl))) %>%
+  ggplot(aes(Pop, mean, fill = Pop)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.25) +
+  facet_wrap(~ trait, scales = "free_y", nrow = 1) +
+  labs(x = NULL, y = "Mean ± SE") +
+  theme_classic(base_size = 11) +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 9))
+```
+
+# 4 · The animal model
+
+## 4.1 Model structure
+
+For each population we fit the same multivariate model:
+
+$$
+\mathbf{y} \;=\; \text{trait intercepts} \;+\; \mathbf{a} \;+\; \mathbf{m}
+\;+\; \mathbf{b} \;+\; \mathbf{t} \;+\; \mathbf{e}
+$$
+
+with the following random-effect structure:
+
+- `us(trait):animal` — additive genetic effects via the pedigree, giving
+  the unstructured 5×5 V_A matrix (this is **G**).
+- `us(trait):dam` — maternal/dam effects, separating V_A from V_maternal.
+- `idh(trait):block` — between-block environmental variance (diagonal).
+- `idh(trait):transect_f` — within-block spatial variance (diagonal).
+- `us(trait):units` — residual covariance (the 5×5 R matrix).
+
+The diagonal (`idh`) form for block and transect avoids estimating dozens
+of off-diagonal nuisance covariances we have no use for.
+
+## 4.2 Priors: parameter-expanded vs inverse-Wishart
+
+Two priors are used:
+
+- **PX (parameter-expanded)** — weakly informative on correlations; this is
+  the default for the main analysis. `alpha.V = diag(NT) * 1000` lets the
+  scale of V_A and V_M be effectively unbounded.
+- **IW (inverse-Wishart, V = I, ν = NT)** — the original analysis's prior,
+  retained as a sensitivity check (see §13.3).
+
+```{r mcmc-fn}
+fit_animal_model <- function(prep, peds, prior_type = "px",
+                             nitt = NITT, burnin = BURNIN, thin = THIN,
+                             n_chains = N_CHAINS) {
+
+  dat  <- as.data.frame(prep$fp)
+  Ainv <- peds$Ainv
+
+  dat$animal     <- factor(trimws(as.character(dat$animal)),
+                           levels = rownames(Ainv))
+  dat$animal     <- droplevels(dat$animal)
+  dat$dam        <- factor(dat$dam)
+  dat$block      <- factor(dat$block)
+  dat$transect_f <- factor(dat$transect_f)
+
+  if (prior_type == "px") {
+    prior <- list(
+      G = list(
+        G1 = list(V = diag(NT), nu = NT, alpha.mu = rep(0, NT),
+                  alpha.V = diag(NT) * 1000),     # animal (V_A)
+        G2 = list(V = diag(NT), nu = NT, alpha.mu = rep(0, NT),
+                  alpha.V = diag(NT) * 1000),     # dam (V_M)
+        G3 = list(V = diag(NT), nu = 0.002),      # block (idh)
+        G4 = list(V = diag(NT), nu = 0.002)       # transect (idh)
+      ),
+      R = list(V = diag(NT), nu = NT)
+    )
+  } else if (prior_type == "iw") {
+    prior <- list(
+      G = list(
+        G1 = list(V = diag(NT), nu = NT),
+        G2 = list(V = diag(NT), nu = NT),
+        G3 = list(V = diag(NT), nu = 0.002),
+        G4 = list(V = diag(NT), nu = 0.002)
+      ),
+      R = list(V = diag(NT), nu = NT)
+    )
+  } else stop("unknown prior_type")
+
+  fit_one <- function(seed) {
+    set.seed(seed)
+    MCMCglmm(
+      fixed    = cbind(corolla_z, SLA_z, d13C_z, msm_z, fec_z) ~ trait - 1,
+      random   = ~ us(trait):animal + us(trait):dam
+                 + idh(trait):block + idh(trait):transect_f,
+      rcov     = ~ us(trait):units,
+      family   = rep("gaussian", NT),
+      ginverse = list(animal = Ainv),
+      data     = dat,
+      prior    = prior,
+      nitt     = nitt, burnin = burnin, thin = thin,
+      verbose  = FALSE
+    )
+  }
+
+  purrr::map(seq_len(n_chains), fit_one)
+}
+```
+
+## 4.3 Build the per-population pedigrees
+
+```{r build-peds}
+peds_list <- purrr::map(pop_data, ~ build_pedigree(.x$fp))
+```
+
+## 4.4 Fit the main models (PX prior, all four populations)
+
+```{r fit-main}
+fits_main <- purrr::map2(pop_data, peds_list,
+                  ~ fit_animal_model(.x, .y, prior_type = "px"))
+```
+
+## 4.5 Fit sensitivity models with the IW prior
+
+AC is our "reference" population (most complete data). BB has the thinnest
+spatial structure (156 Locations with ~1–3 F-plants each) and highest
+missingness, making it the population where the PX prior does the most
+work. We refit both with the original IW prior so we can compare in §13.3.
+
+```{r fit-iw-sensitivity}
+fits_iw_AC <- fit_animal_model(pop_data$AC, peds_list$AC, prior_type = "iw")
+fits_iw_BB <- fit_animal_model(pop_data$BB, peds_list$BB, prior_type = "iw")
+```
+
+# 5 · MCMC diagnostics
+
+The earlier implementation only checked R̂ on the V_A diagonals (~12% of
+monitored parameters). The off-diagonals of G, the maternal covariance
+matrix, and the residual covariance matrix all drive downstream quantities
+(r_A, β_G, eigenanalysis), and they typically mix worse than diagonals.
+Here we diagnose **every** monitored parameter — fixed effects (`Sol`) plus
+every entry of every variance/covariance component (`VCV`).
+
+## 5.1 Gelman–Rubin R̂
+
+R̂ > 1.1 is the conventional concern threshold; > 1.2 is bad mixing. With
+`TEST_RUN = TRUE`, expect some R̂ above threshold simply because the chains
+are short.
+
+```{r convergence-rhat}
+gelman_summary <- function(fits, label) {
+  mc <- mcmc.list(lapply(fits,
+                         function(f) as.mcmc(cbind(f$Sol, f$VCV))))
+  gd <- gelman.diag(mc, multivariate = FALSE, autoburnin = FALSE)
+  tibble(Pop = label,
+         param = rownames(gd$psrf),
+         psrf  = gd$psrf[, 1],
+         upper = gd$psrf[, 2])
+}
+
+conv_tbl <- purrr::map2_dfr(fits_main, names(fits_main),
+                            ~ gelman_summary(.x, .y))
+
+conv_health <- conv_tbl %>%
+  group_by(Pop) %>%
+  summarise(
+    n_params         = n(),
+    max_psrf         = max(psrf, na.rm = TRUE),
+    n_psrf_above_1_1 = sum(psrf > 1.1, na.rm = TRUE),
+    n_psrf_above_1_2 = sum(psrf > 1.2, na.rm = TRUE),
+    .groups = "drop"
+  )
+conv_health
+conv_tbl %>% filter(psrf > 1.1) %>% arrange(desc(psrf))
+```
+
+## 5.2 Effective sample size
+
+ESS < 100 means the chain is essentially uninformative for that parameter;
+< 400 is borderline. With `TEST_RUN = FALSE`, the target is ≥ 1000 for V_A
+diagonals and the leading r_A entries.
+
+```{r convergence-ess}
+ess_summary <- function(fits, label) {
+  combined <- as.mcmc(do.call(rbind,
+                              lapply(fits,
+                                     function(f) cbind(f$Sol, f$VCV))))
+  ess <- effectiveSize(combined)
+  tibble(Pop = label, param = names(ess), ESS = unname(ess))
+}
+ess_tbl <- purrr::map2_dfr(fits_main, names(fits_main),
+                           ~ ess_summary(.x, .y))
+
+ess_health <- ess_tbl %>%
+  group_by(Pop) %>%
+  summarise(
+    n_params        = n(),
+    min_ESS         = min(ESS, na.rm = TRUE),
+    n_ESS_below_100 = sum(ESS < 100, na.rm = TRUE),
+    n_ESS_below_400 = sum(ESS < 400, na.rm = TRUE),
+    .groups = "drop"
+  )
+ess_health
+ess_tbl %>% arrange(ESS) %>% head(20)
+```
+
+# 6 · Extracting posterior quantities
+
+The fit object is a list of `MCMCglmm` chains. Everything downstream (r_A,
+h², eigenanalysis, β_G, evolvability, Random Skewers) is computed from the
+VCV columns, so the next few helpers shape those columns into arrays we
+can index by trait pair and posterior draw.
+
+## 6.1 Small numerical helpers
+
+`safe_hpd()` returns a 95% HPD interval but tolerates NAs and tiny samples
+gracefully. `cov2cor_mat()` converts a covariance matrix to a correlation
+matrix without R's `cov2cor` warning machinery.
+
+```{r helpers}
+safe_hpd <- function(x, prob = 0.95) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2) return(c(NA_real_, NA_real_))
+  as.numeric(HPDinterval(as.mcmc(x), prob = prob))
+}
+
+cov2cor_mat <- function(S) {
+  d <- sqrt(diag(S))
+  S / (d %o% d)
+}
+```
+
+## 6.2 Reshaping the VCV output into trait × trait arrays
+
+`build_G_array()` takes the VCV matrix (rows = posterior draws, columns =
+named like `traitA:traitB.animal`) and returns a 3-D array indexed as
+`[draw, trait_i, trait_j]`. The `suffix` argument selects which variance
+component to extract — `"animal"` for **G**, `"dam"` for the maternal
+covariance, `"units"` for the residual covariance.
+
+```{r vcv-helpers}
+combine_VCV <- function(fits) {
+  do.call(rbind, lapply(fits, function(f) as.matrix(f$VCV)))
+}
+
+build_G_array <- function(VCV, suffix = "animal") {
+  Gcol <- function(t1, t2) paste0("trait", t1, ":trait", t2, ".", suffix)
+  out <- array(NA_real_, dim = c(nrow(VCV), NT, NT),
+               dimnames = list(NULL, TRAITS, TRAITS))
+  for (i in seq_along(TRAITS)) for (j in seq_along(TRAITS)) {
+    out[, i, j] <- VCV[, Gcol(TRAITS[i], TRAITS[j])]
+  }
+  out
+}
+
+posterior_summary_matrix <- function(arr) {
+  mean_mat <- apply(arr, c(2, 3), mean)
+  l95 <- apply(arr, c(2, 3), function(x) safe_hpd(x)[1])
+  u95 <- apply(arr, c(2, 3), function(x) safe_hpd(x)[2])
+  list(mean = mean_mat, l95 = l95, u95 = u95,
+       sig  = (l95 > 0) | (u95 < 0))
+}
+
+rA_from_G <- function(G_arr) {
+  out <- array(NA_real_, dim = dim(G_arr), dimnames = dimnames(G_arr))
+  for (k in seq_len(dim(G_arr)[1])) out[k, , ] <- cov2cor_mat(G_arr[k, , ])
+  out
+}
+```
+
+## 6.3 Per-population extraction including h²
+
+`extract_pop()` packages the per-population posterior into one list. h² is
+computed *per draw* with the proper phenotypic-variance denominator:
+
+$$
+h^2_i \;=\; \frac{V_{A,i}}{V_{A,i} + V_{M,i} + V_{\text{block},i}
++ V_{\text{transect},i} + V_{R,i}}
+$$
+
+```{r extract-pop-fn}
+extract_pop <- function(fits) {
+  VCV <- combine_VCV(fits)
+  G_array <- build_G_array(VCV, "animal")
+  M_array <- build_G_array(VCV, "dam")
+  R_array <- build_G_array(VCV, "units")
+  rA_array <- rA_from_G(G_array)
+
+  block_cols    <- grep("\\.block$",      colnames(VCV), value = TRUE)
+  transect_cols <- grep("\\.transect_f$", colnames(VCV), value = TRUE)
+
+  h2_array <- array(NA_real_, dim = c(nrow(VCV), NT),
+                    dimnames = list(NULL, TRAITS))
+  for (i in seq_along(TRAITS)) {
+    Va <- G_array[, i, i]
+    Vm <- M_array[, i, i]
+    Vr <- R_array[, i, i]
+    bcol <- grep(paste0("trait", TRAITS[i], "\\.block$"),
+                 block_cols,    value = TRUE)
+    tcol <- grep(paste0("trait", TRAITS[i], "\\.transect_f$"),
+                 transect_cols, value = TRUE)
+    Vb   <- if (length(bcol) == 1) VCV[, bcol] else 0
+    Vt   <- if (length(tcol) == 1) VCV[, tcol] else 0
+    h2_array[, i] <- Va / (Va + Vm + Vb + Vt + Vr)
+  }
+
+  list(
+    VCV = VCV,
+    G_array = G_array,
+    M_array = M_array,
+    R_array = R_array,
+    rA_array = rA_array,
+    h2_array = h2_array,
+    G_summary  = posterior_summary_matrix(G_array),
+    M_summary  = posterior_summary_matrix(M_array),
+    rA_summary = posterior_summary_matrix(rA_array)
+  )
+}
+```
+
+## 6.4 Run the extraction on every population
+
+```{r extract-all}
+post_main <- purrr::map(fits_main, extract_pop)
+```
+
+## 6.5 V_A diagonals
+
+```{r tbl-Va}
+Va_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  tibble(
+    Pop = pop, trait = TRAITS,
+    Va_mean = diag(p$G_summary$mean),
+    Va_l95  = diag(p$G_summary$l95),
+    Va_u95  = diag(p$G_summary$u95)
+  )
+})
+Va_tbl
+```
+
+## 6.6 V_M diagonals (maternal variance)
+
+Compare these against V_A in the previous table — if V_M is large for a
+trait, the original analysis (which lacked a dam effect) was almost
+certainly inflating V_A for that trait.
+
+```{r tbl-Vm}
+Vm_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  tibble(
+    Pop = pop, trait = TRAITS,
+    Vm_mean = diag(p$M_summary$mean),
+    Vm_l95  = diag(p$M_summary$l95),
+    Vm_u95  = diag(p$M_summary$u95)
+  )
+})
+Vm_tbl
+```
+
+## 6.7 Narrow-sense heritability
+
+```{r tbl-h2}
+h2_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  tibble(
+    Pop   = pop, trait = TRAITS,
+    h2_mean = colMeans(p$h2_array, na.rm = TRUE),
+    h2_l95  = apply(p$h2_array, 2, function(x) safe_hpd(x)[1]),
+    h2_u95  = apply(p$h2_array, 2, function(x) safe_hpd(x)[2])
+  )
+})
+h2_tbl
+```
+
+# 7 · Genetic correlations (r_A)
+
+Per-draw genetic correlations come from converting each posterior G to a
+correlation matrix. The upper triangle gives one row per trait pair per
+population; the `sig` flag marks pairs whose 95% HPD excludes zero.
+
+## 7.1 Pairwise r_A table
+
+```{r rA-table}
+rA_pairs_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  rA_arr <- p$rA_array
+  ut <- which(upper.tri(diag(NT)), arr.ind = TRUE)
+  purrr::map_dfr(seq_len(nrow(ut)), function(idx) {
+    i <- ut[idx, 1]; j <- ut[idx, 2]
+    x <- rA_arr[, i, j]
+    h <- safe_hpd(x)
+    tibble(Pop    = pop,
+           trait1 = TRAITS[i],
+           trait2 = TRAITS[j],
+           rA_mean = mean(x, na.rm = TRUE),
+           rA_l95  = h[1], rA_u95 = h[2],
+           sig     = isTRUE(h[1] > 0) || isTRUE(h[2] < 0))
+  })
+})
+rA_pairs_tbl
+```
+
+Same data, formatted as `"mean [l95, u95]"` with **bold** for HPDs that
+exclude zero (matches the original Rmd table style):
+
+```{r rA-table-formatted}
+rA_pairs_tbl %>%
+  mutate(
+    label = sprintf("%.2f [%.2f, %.2f]", rA_mean, rA_l95, rA_u95),
+    label = ifelse(sig, paste0("**", label, "**"), label),
+    trait1 = factor(trait1, levels = TRAITS),
+    trait2 = factor(trait2, levels = TRAITS)
+  ) %>%
+  select(Pop, trait1, trait2, label) %>%
+  tidyr::pivot_wider(names_from = trait2, values_from = label)
+```
+
+## 7.2 r_A heatmap
+
+Cells whose 95% HPD excludes zero are bordered in black and shown at full
+saturation; non-significant cells are de-saturated.
+
+```{r rA-plot, fig.width=10, fig.height=8}
+trait_labels <- c(corolla_z = "corolla", SLA_z = "SLA",
+                  d13C_z = "δ13C", msm_z = "msm", fec_z = "fecundity")
+
+rA_long <- purrr::imap_dfr(post_main, function(p, pop) {
+  m   <- p$rA_summary$mean
+  l   <- p$rA_summary$l95
+  u   <- p$rA_summary$u95
+  sig <- p$rA_summary$sig
+  expand_grid(trait1 = rownames(m), trait2 = colnames(m)) %>%
+    mutate(
+      Pop = pop,
+      rA  = as.vector(m), l95 = as.vector(l), u95 = as.vector(u),
+      sig = as.vector(sig),
+      trait1 = factor(recode(trait1, !!!trait_labels),
+                      levels = unname(trait_labels)),
+      trait2 = factor(recode(trait2, !!!trait_labels),
+                      levels = unname(trait_labels))
+    )
+})
+
+ggplot(rA_long, aes(trait1, trait2, fill = rA)) +
+  geom_tile(aes(alpha = ifelse(sig, 1, 0.35)), colour = NA) +
+  geom_tile(data = filter(rA_long, sig),
+            fill = NA, colour = "black", linewidth = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", rA),
+                fontface = ifelse(sig, "bold", "plain")), size = 3.2) +
+  scale_alpha_identity() +
+  scale_fill_gradient2(low = "#3B9AB2", mid = "white", high = "#F21A00",
+                       midpoint = 0, limits = c(-1, 1)) +
+  coord_equal() +
+  facet_wrap(~ Pop) +
+  labs(x = NULL, y = NULL, fill = "r_A") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# 8 · Eigenanalysis of G
+
+The eigendecomposition of G summarises which directions in trait space
+hold most additive genetic variance. We work per draw so HPDs reflect
+genuine posterior uncertainty.
+
+## 8.1 Per-draw eigendecomposition
+
+Eigenvectors flip sign arbitrarily between draws, so within each
+population we sign-align each draw's eigenvector to the corresponding
+eigenvector of the posterior-mean G before averaging.
+
+```{r eigen-fn}
+eigen_per_draw <- function(G_array) {
+  niter <- dim(G_array)[1]
+  G_mean <- apply(G_array, c(2, 3), mean)
+  ref_vec <- eigen(G_mean, symmetric = TRUE)$vectors
+
+  trace_vec <- numeric(niter)
+  eigvals   <- matrix(NA_real_, niter, NT)
+  prop_pc1  <- numeric(niter)
+  prop_pc2  <- numeric(niter)
+  loadings  <- array(NA_real_, dim = c(niter, NT, NT),
+                     dimnames = list(NULL, TRAITS, paste0("PC", 1:NT)))
+  for (k in seq_len(niter)) {
+    Gk <- G_array[k, , ]
+    ek <- eigen(Gk, symmetric = TRUE)
+    trace_vec[k] <- sum(diag(Gk))
+    eigvals[k, ] <- ek$values
+    prop_pc1[k]  <- ek$values[1] / sum(ek$values)
+    prop_pc2[k]  <- ek$values[2] / sum(ek$values)
+    V <- ek$vectors
+    for (j in seq_len(NT)) {
+      if (sum(V[, j] * ref_vec[, j]) < 0) V[, j] <- -V[, j]
+    }
+    loadings[k, , ] <- V
+  }
+  list(trace = trace_vec, eigvals = eigvals,
+       prop_pc1 = prop_pc1, prop_pc2 = prop_pc2, loadings = loadings)
+}
+
+eig_results <- purrr::map(post_main, ~ eigen_per_draw(.x$G_array))
+```
+
+## 8.2 Eigenvalue summary (Table 5 / S9 analogue)
+
+Per population: trace(G), λ₁ … λ₅, and the proportion of variance on PC1
+and PC2.
+
+```{r eigen-summary-table}
+eig_summary_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
+  lam_hpd <- apply(e$eigvals, 2, safe_hpd)
+  tibble(
+    Pop          = pop,
+    trace_mean   = mean(e$trace, na.rm = TRUE),
+    trace_l95    = safe_hpd(e$trace)[1],
+    trace_u95    = safe_hpd(e$trace)[2],
+    lambda1_mean = mean(e$eigvals[, 1], na.rm = TRUE),
+    lambda1_l95  = lam_hpd[1, 1], lambda1_u95 = lam_hpd[2, 1],
+    lambda2_mean = mean(e$eigvals[, 2], na.rm = TRUE),
+    lambda2_l95  = lam_hpd[1, 2], lambda2_u95 = lam_hpd[2, 2],
+    lambda3_mean = mean(e$eigvals[, 3], na.rm = TRUE),
+    lambda3_l95  = lam_hpd[1, 3], lambda3_u95 = lam_hpd[2, 3],
+    lambda4_mean = mean(e$eigvals[, 4], na.rm = TRUE),
+    lambda5_mean = mean(e$eigvals[, 5], na.rm = TRUE),
+    prop_PC1_mean = mean(e$prop_pc1, na.rm = TRUE),
+    prop_PC1_l95  = safe_hpd(e$prop_pc1)[1],
+    prop_PC1_u95  = safe_hpd(e$prop_pc1)[2],
+    prop_PC2_mean = mean(e$prop_pc2, na.rm = TRUE),
+    prop_PC2_l95  = safe_hpd(e$prop_pc2)[1],
+    prop_PC2_u95  = safe_hpd(e$prop_pc2)[2]
+  )
+})
+eig_summary_tbl
+```
+
+## 8.3 PC2 reliability check
+
+PC1 is almost always well separated from PC2 by eigenvalue magnitude, but
+PC2 vs PC3 may not be — and when their HPDs overlap, sign-alignment is no
+longer enough to stabilise their eigenvectors across draws. The averaged
+loadings then pull toward the reference and understate uncertainty. This
+chunk flags any population where λ₂ and λ₃ HPDs overlap so PC2 results
+can be suppressed or caveated in the manuscript.
+
+```{r pc2-reliable}
+pc2_reliable_tbl <- eig_summary_tbl %>%
+  mutate(
+    pc2_reliable = lambda2_l95 > lambda3_u95,
+    overlap_note = ifelse(pc2_reliable,
+                          "λ₂ and λ₃ HPDs do not overlap — PC2 loadings stable",
+                          "λ₂ and λ₃ HPDs OVERLAP — PC2 loadings unreliable")
+  ) %>%
+  select(Pop, lambda2_mean, lambda2_l95, lambda2_u95,
+         lambda3_mean, lambda3_l95, lambda3_u95,
+         pc2_reliable, overlap_note)
+pc2_reliable_tbl
+```
+
+## 8.4 PC1 trait loadings
+
+```{r pc1-loadings}
+pc1_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
+  pc1 <- e$loadings[, , 1]
+  hp  <- apply(pc1, 2, safe_hpd)
+  tibble(
+    Pop   = pop,
+    trait = TRAITS,
+    loading_mean = colMeans(pc1, na.rm = TRUE),
+    loading_l95  = hp[1, ],
+    loading_u95  = hp[2, ],
+    main_contributor = abs(colMeans(pc1, na.rm = TRUE)) > 0.2
+  )
+})
+pc1_loadings_tbl
+```
+
+## 8.5 PC2 trait loadings (caveated for unreliable populations)
+
+```{r pc2-loadings}
+pc2_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
+  pc2 <- e$loadings[, , 2]
+  hp  <- apply(pc2, 2, safe_hpd)
+  tibble(
+    Pop   = pop,
+    trait = TRAITS,
+    loading_mean = colMeans(pc2, na.rm = TRUE),
+    loading_l95  = hp[1, ],
+    loading_u95  = hp[2, ],
+    main_contributor = abs(colMeans(pc2, na.rm = TRUE)) > 0.2
+  )
+}) %>%
+  left_join(pc2_reliable_tbl %>% select(Pop, pc2_reliable), by = "Pop")
+pc2_loadings_tbl
+
+unreliable_pops <- pc2_reliable_tbl %>%
+  filter(!pc2_reliable) %>%
+  pull(Pop)
+if (length(unreliable_pops) > 0)
+  message("PC2 loadings are unreliable for: ",
+          paste(unreliable_pops, collapse = ", "),
+          " (λ₂ and λ₃ HPDs overlap). ",
+          "Suppress or caveat PC2 results for these populations.")
+```
+
+## 8.6 Compact contributor strings (manuscript table format)
+
+A trait counts as a "main contributor" to a PC if `|loading| > 0.2`. The
+string format below mirrors the original manuscript table —
+`"δ13C (−), SLA (+), fecundity (−)"`.
+
+```{r pc-contributor-strings}
+make_contrib_str <- function(loadings_tbl) {
+  loadings_tbl %>%
+    filter(main_contributor) %>%
+    mutate(sign  = ifelse(loading_mean > 0, "+", "−"),
+           label = sprintf("%s (%s)",
+                           recode(trait,
+                                  corolla_z = "corolla",
+                                  SLA_z     = "SLA",
+                                  d13C_z    = "δ13C",
+                                  msm_z     = "seed mass",
+                                  fec_z     = "fecundity"),
+                           sign)) %>%
+    group_by(Pop) %>%
+    summarise(contributors = paste(label, collapse = ", "),
+              .groups = "drop")
+}
+pc1_contrib_str <- make_contrib_str(pc1_loadings_tbl) %>%
+  rename(main_PC1_contributors = contributors)
+pc1_contrib_str
+
+pc2_contrib_str <- make_contrib_str(pc2_loadings_tbl) %>%
+  rename(main_PC2_contributors = contributors)
+pc2_contrib_str
+```
+
+# 9 · Evolvability metrics
+
+For a unit vector **β** in trait space, the *evolvability* of G in
+direction **β** is
+
+$$
+e(\boldsymbol{\beta}) \;=\; \boldsymbol{\beta}^{\top} \mathbf{G}
+\boldsymbol{\beta}
+$$
+
+i.e. the additive genetic variance projected onto **β**. Three summaries
+across many random unit vectors are useful:
+
+- **`e_mean`** — average evolvability (mean of e(**β**) over directions).
+- **`c_mean`** — conditional evolvability, the variance in **β** that
+  remains when all other axes are held fixed. Lower than `e_mean` whenever
+  there are genetic constraints.
+- **`a_mean`** — autonomy `c / e`. 1 means no constraint; near 0 means
+  every direction is strongly constrained by correlations with other traits.
+
+We compute these per posterior draw using a fixed set of `N_SKEWERS`
+random unit vectors **B**.
+
+## 9.1 Per-draw computation
+
+```{r evolvability-fn}
+rand_unit_vecs <- function(p, nvec) {
+  M <- matrix(rnorm(nvec * p), nvec, p)
+  M / sqrt(rowSums(M^2))
+}
+
+evolv_one <- function(G, B) {
+  e <- rowSums((B %*% G) * B)
+  cev <- tryCatch({
+    Ginv <- solve(G)
+    1 / rowSums((B %*% Ginv) * B)
+  }, error = function(e) rep(NA_real_, nrow(B)))
+  a <- cev / e
+  c(e_mean = mean(e, na.rm = TRUE),
+    e_min  = min(e,  na.rm = TRUE),
+    e_max  = max(e,  na.rm = TRUE),
+    c_mean = mean(cev, na.rm = TRUE),
+    a_mean = mean(a,   na.rm = TRUE))
+}
+
+set.seed(20260520)
+B <- rand_unit_vecs(NT, N_SKEWERS)
+
+evol_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  niter <- dim(p$G_array)[1]
+  m <- t(sapply(seq_len(niter),
+                function(k) evolv_one(p$G_array[k, , ], B)))
+  m <- as.data.frame(m)
+  purrr::imap_dfr(m, function(x, metric) {
+    h <- safe_hpd(x)
+    tibble(Pop = pop, metric = metric,
+           mean = mean(x, na.rm = TRUE),
+           l95 = h[1], u95 = h[2])
+  })
+})
+evol_tbl
+```
+
+## 9.2 Figure 7 — three-panel evolvability plot
+
+```{r evolvability-plot, fig.width=12, fig.height=4}
+evol_wide <- evol_tbl %>%
+  filter(metric %in% c("e_mean", "c_mean", "a_mean")) %>%
+  mutate(
+    panel = recode(metric,
+                   e_mean = "A) Mean Evolvability",
+                   c_mean = "B) Conditional Evolvability",
+                   a_mean = "C) Autonomy"),
+    panel = factor(panel,
+                   levels = c("A) Mean Evolvability",
+                              "B) Conditional Evolvability",
+                              "C) Autonomy")),
+    Pop = factor(Pop, levels = c("AC", "BB", "BO", "HR"))
+  )
+
+ggplot(evol_wide, aes(Pop, mean)) +
+  geom_errorbar(aes(ymin = l95, ymax = u95), width = 0, linewidth = 0.6) +
+  geom_point(size = 3) +
+  scale_y_continuous(limits = c(0, 1)) +
+  facet_wrap(~ panel, nrow = 1) +
+  labs(x = "Population", y = NULL) +
+  theme_classic(base_size = 13)
+```
+
+# 10 · Population comparison via Random Skewers
+
+The Random Skewers metric `r_RS` measures how similarly two G matrices
+respond to random selection vectors. We propagate posterior uncertainty by
+drawing one posterior sample from each of the two populations per
+comparison (rather than comparing only the posterior means).
+
+```{r random-skewers}
+posterior_skewers <- function(G_array_1, G_array_2,
+                              n_draws = N_POST_DRAWS_FOR_SKEWERS,
+                              n_skewers = N_SKEWERS) {
+  i1 <- sample(seq_len(dim(G_array_1)[1]), n_draws, replace = TRUE)
+  i2 <- sample(seq_len(dim(G_array_2)[1]), n_draws, replace = TRUE)
+  out <- vapply(seq_len(n_draws), function(k) {
+    res <- tryCatch(
+      RandomSkewers(G_array_1[i1[k], , ], G_array_2[i2[k], , ],
+                    num.vectors = n_skewers),
+      error = function(e) c(correlation = NA_real_, pvalue = NA_real_))
+    c(correlation = unname(res["correlation"]),
+      pvalue      = unname(res["pvalue"]))
+  }, numeric(2))
+  t(out)
+}
+
+pop_names <- names(post_main)
+pairs <- combn(pop_names, 2, simplify = FALSE)
+rs_tbl <- purrr::map_dfr(pairs, function(pp) {
+  rs <- posterior_skewers(post_main[[pp[1]]]$G_array,
+                          post_main[[pp[2]]]$G_array)
+  r <- rs[, "correlation"]
+  p <- rs[, "pvalue"]
+  h <- safe_hpd(r)
+  tibble(pop1 = pp[1], pop2 = pp[2],
+         r_RS_mean = mean(r, na.rm = TRUE),
+         r_RS_sd   = sd(r,   na.rm = TRUE),
+         r_RS_l95  = h[1], r_RS_u95 = h[2],
+         p_mean    = mean(p, na.rm = TRUE),
+         p_max     = suppressWarnings(max(p, na.rm = TRUE)))
+})
+rs_tbl
+```
+
+# 11 · Selection — phenotypic vs genetic gradients
+
+The central added analysis: comparing the **phenotypic** selection
+gradient β_P (the Lande–Arnold OLS regression) against the **genetic**
+selection gradient β_G computed from **G** via the Robertson–Price
+identity.
+
+## 11.1 Lande–Arnold β_P (phenotypic)
+
+Lande–Arnold's β_P is just the OLS regression of relative fitness on
+standardised traits. Two adjustments to the textbook version are worth
+calling out:
+
+- **Relative-fitness denominator**: `w_rel = W / mean(W)`. Earlier
+  iterations used `mean(W[W > 0 | surv == 1])`, which made `mean(w_rel)`
+  not equal to 1 and gave an asymmetric estimator.
+- **HC3 sandwich SEs**: residual variance in `w_rel` scales with fitness
+  magnitude (a zero-inflated outcome guarantees heteroscedasticity), so
+  the conventional OLS SEs are wrong. We use HC3 sandwich SEs and a
+  HC3-based Wald test for the global F.
+
+```{r beta-pheno-fn}
+beta_pheno <- function(prep, total_fitness = FALSE) {
+  d <- prep$fp %>%
+    mutate(W = if (total_fitness) {
+                  ifelse(surv == 1, ifelse(is.na(fec), 0, fec), 0)
+              } else {
+                  ifelse(is.na(fec), 0, fec)
+              }) %>%
+    select(corolla_z, SLA_z, d13C_z, msm_z, W) %>%
+    drop_na()
+  if (nrow(d) < 10) return(NULL)
+  d$w_rel <- d$W / mean(d$W, na.rm = TRUE)
+  mod <- lm(w_rel ~ corolla_z + SLA_z + d13C_z + msm_z, data = d)
+  vifs <- tryCatch(car::vif(mod), error = function(e) rep(NA_real_, 4))
+  vif_df <- tibble(term = names(vifs), vif = unname(vifs))
+  V_HC3 <- sandwich::vcovHC(mod, type = "HC3")
+  ct    <- lmtest::coeftest(mod, vcov. = V_HC3)
+  wt    <- lmtest::waldtest(mod, vcov = V_HC3)
+  q     <- qt(0.975, df.residual(mod))
+  coefs <- tibble(
+    term      = rownames(ct),
+    estimate  = ct[, "Estimate"],
+    std.error = ct[, "Std. Error"],
+    statistic = ct[, "t value"],
+    p.value   = ct[, "Pr(>|t|)"],
+    conf.low  = ct[, "Estimate"] - q * ct[, "Std. Error"],
+    conf.high = ct[, "Estimate"] + q * ct[, "Std. Error"]
+  ) %>%
+    filter(term != "(Intercept)") %>%
+    left_join(vif_df, by = "term")
+  g <- broom::glance(mod) %>%
+    select(r.squared, adj.r.squared, df, df.residual, nobs) %>%
+    mutate(F_HC3 = wt$F[2], p_HC3 = wt$`Pr(>F)`[2])
+  attr(coefs, "model_fit") <- g
+  coefs
+}
+```
+
+### 11.1.1 Fecundity-only β_P (the classic Lande–Arnold)
+
+```{r beta-P-fec}
+beta_P_tbl <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  beta_pheno(prep, total_fitness = FALSE) %>%
+    mutate(Pop = pop, fitness_def = "fec_only_flowering", .before = 1)
+})
+beta_P_tbl
+```
+
+### 11.1.2 Total-fitness β_P (survival × fecundity)
+
+In this dataset non-survivors don't have trait measurements, so the
+fec-only and survival × fec regression samples are nearly identical. The
+total-fitness column matters more in datasets where some non-survivors
+were measured pre-mortality.
+
+```{r beta-P-total}
+beta_P_total <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  beta_pheno(prep, total_fitness = TRUE) %>%
+    mutate(Pop = pop, fitness_def = "surv_x_fec", .before = 1)
+})
+beta_P_all <- bind_rows(beta_P_tbl, beta_P_total)
+beta_P_all
+```
+
+### 11.1.3 Fit summary
+
+R², F (HC3), p (HC3), n, and max VIF for the fecundity-only regressions.
+This is what the manuscript text "R² ≈ 0.10, all VIF < 1.1" comes from.
+
+```{r beta-P-fit-summary}
+beta_P_fit_summary <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  coefs <- beta_pheno(prep, total_fitness = FALSE)
+  if (is.null(coefs)) return(NULL)
+  g <- attr(coefs, "model_fit")
+  tibble(Pop = pop,
+         r_squared     = g$r.squared,
+         adj_r_squared = g$adj.r.squared,
+         F_HC3         = g$F_HC3,
+         p_HC3         = g$p_HC3,
+         df_resid      = g$df.residual,
+         n             = g$nobs,
+         max_vif       = max(coefs$vif, na.rm = TRUE))
+})
+beta_P_fit_summary
+```
+
+## 11.2 Robertson–Price β_G (genetic)
+
+For non-fitness traits **z** and fitness trait *w*,
+
+$$
+\boldsymbol{\beta}_G \;=\; \mathbf{G}_{zz}^{-1}\,\mathrm{Cov}_A(z, w)
+$$
+
+computed draw by draw to propagate posterior uncertainty.
+
+**Scale and likelihood caveats.** Two approximations apply:
+
+1. *Scale*: the fitness column entering G is `fec_z` — z-scored raw
+   fecundity — not relative fitness (W / W̄). β_G here is on the scale of
+   "additive genetic SD change in trait z per additive genetic SD change
+   in fecundity", not the strict per-generation response of the breeder's
+   equation. It is comparable across populations (everything is z-scored
+   within population) but should not be plugged into Δz̄ = G β_G without
+   rescaling by W̄.
+
+2. *Gaussian likelihood on count data*: fecundity is a non-negative,
+   right-skewed integer. The Gaussian likelihood attenuates V_A(fec) and
+   Cov_A(z, fec) relative to a Poisson or negative-binomial likelihood,
+   and β_G with it. The `log1p(fec)` sensitivity check in §13.1 gauges
+   whether this attenuation matters in practice.
+
+```{r beta-genetic-fn}
+beta_genetic_posterior <- function(G_array, fec_index = 5) {
+  z_idx <- setdiff(seq_len(NT), fec_index)
+  niter <- dim(G_array)[1]
+  out   <- matrix(NA_real_, nrow = niter, ncol = length(z_idx),
+                  dimnames = list(NULL, TRAITS[z_idx]))
+  for (k in seq_len(niter)) {
+    Gk    <- G_array[k, , ]
+    G_zz  <- Gk[z_idx, z_idx]
+    G_zw  <- Gk[z_idx, fec_index]
+    out[k, ] <- tryCatch(
+      as.numeric(solve(G_zz, G_zw)),
+      error = function(e) rep(NA_real_, length(z_idx))
+    )
+  }
+  out
+}
+
+beta_G_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  bG <- beta_genetic_posterior(p$G_array,
+                               fec_index = which(TRAITS == "fec_z"))
+  hpds <- apply(bG, 2, safe_hpd)
+  tibble(
+    Pop         = pop,
+    trait       = colnames(bG),
+    beta_G_mean = colMeans(bG, na.rm = TRUE),
+    beta_G_l95  = hpds[1, ],
+    beta_G_u95  = hpds[2, ],
+    sig         = (hpds[1, ] > 0) | (hpds[2, ] < 0)
+  )
+})
+beta_G_tbl
+```
+
+## 11.3 Side-by-side comparison plot
+
+Filled symbols mark gradients whose 95% CI / HPD excludes zero.
+
+```{r beta-comparison-plot, fig.width=11, fig.height=5}
+plot_dat <- bind_rows(
+  beta_P_tbl %>%
+    transmute(Pop, trait = term,
+              mean = estimate, l95 = conf.low, u95 = conf.high,
+              type = "Phenotypic β (fecundity)"),
+  beta_G_tbl %>%
+    transmute(Pop, trait,
+              mean = beta_G_mean, l95 = beta_G_l95, u95 = beta_G_u95,
+              type = "Genetic β_G")
+) %>%
+  mutate(
+    sig = (l95 > 0) | (u95 < 0),
+    trait = recode_factor(trait,
+              corolla_z = "corolla", SLA_z = "SLA",
+              d13C_z    = "δ13C",    msm_z = "msm")
+  )
+
+ggplot(plot_dat, aes(mean, Pop, colour = type, shape = sig)) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  geom_errorbarh(aes(xmin = l95, xmax = u95),
+                 height = 0.2, position = position_dodge(width = 0.5)) +
+  geom_point(size = 3, position = position_dodge(width = 0.5)) +
+  facet_wrap(~ trait, scales = "free_x", nrow = 1) +
+  scale_shape_manual(values = c("FALSE" = 1, "TRUE" = 16),
+                     labels = c("NS", "HPD excludes 0")) +
+  labs(x = "Standardised selection gradient",
+       y = NULL, colour = NULL, shape = NULL) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+# 12 · Viability selection
+
+The phenotypic β only sees plants that survived to flowering. Viability —
+the probability of surviving from sowing to flowering — is a separate
+component of total fitness, and we model it directly with a binomial GLM
+on segment-level survival counts.
+
+## 12.1 Safety: cap survival counts at seeds sown
+
+Survival counts come from `group_by(segment_id) %>% sum(surv_to_flower)`.
+If, for any reason, the count ever exceeds `seeds_sown` (8 or 10
+depending on population), something upstream is broken — most likely the
+segment key. We cap silently but **warn loudly** so problems can't pass
+unnoticed.
+
+```{r cap-seeds-fn}
+cap_seeds <- function(df, seeds_sown_val, pop_label) {
+  n_over <- sum(df$total_surv_to_flower > seeds_sown_val, na.rm = TRUE)
+  if (n_over > 0)
+    warning(pop_label, ": ", n_over,
+            " row(s) had total_surv_to_flower > seeds_sown and were capped")
+  df$total_surv_to_flower <- pmin(df$total_surv_to_flower, seeds_sown_val)
+  df
+}
+```
+
+## 12.2 Segment-level survival GLM
+
+Quasi-binomial because survival counts are overdispersed (see §12.3).
+The predictor side uses only the four non-fitness traits.
+
+```{r surv-glm}
+surv_summary <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  cfg <- POP_CONFIG[[pop]]
+  d <- cap_seeds(prep$fp, cfg$seeds_sown, pop) %>%
+    mutate(seeds_sown = cfg$seeds_sown) %>%
+    select(total_surv_to_flower, seeds_sown,
+           corolla_z, SLA_z, d13C_z, msm_z) %>%
+    drop_na()
+  if (nrow(d) < 10) return(NULL)
+  mod <- glm(cbind(total_surv_to_flower, seeds_sown - total_surv_to_flower) ~
+               corolla_z + SLA_z + d13C_z + msm_z,
+             family = quasibinomial, data = d)
+  broom::tidy(mod, conf.int = TRUE) %>%
+    filter(term != "(Intercept)") %>%
+    mutate(Pop = pop, .before = 1)
+})
+surv_summary
+```
+
+## 12.3 Overdispersion diagnostic
+
+Pearson-residual dispersion (Σ rᵖ² / df) — values >> 1 justify the
+quasi-binomial choice. The original analysis used quasi-binomial for BO
+and HR for precisely this reason.
+
+```{r surv-overdisp}
+overdisp_fun <- function(model) {
+  rp <- residuals(model, type = "pearson")
+  sum(rp^2) / df.residual(model)
+}
+
+overdisp_tbl <- purrr::imap_dfr(pop_data, function(prep, pop) {
+  cfg <- POP_CONFIG[[pop]]
+  d <- cap_seeds(prep$fp, cfg$seeds_sown, pop) %>%
+    mutate(seeds_sown = cfg$seeds_sown) %>%
+    select(total_surv_to_flower, seeds_sown,
+           corolla_z, SLA_z, d13C_z, msm_z) %>%
+    drop_na()
+  if (nrow(d) < 10) return(NULL)
+  mod_binom <- glm(
+    cbind(total_surv_to_flower, seeds_sown - total_surv_to_flower) ~
+      corolla_z + SLA_z + d13C_z + msm_z,
+    family = binomial, data = d)
+  tibble(Pop = pop,
+         overdispersion_ratio = overdisp_fun(mod_binom),
+         family_used = "quasibinomial")
+})
+overdisp_tbl
+```
+
+# 13 · Sensitivity analyses
+
+Three checks, in increasing breadth: (1) likelihood mis-specification on
+fecundity (AC only); (2) trait drop / imputation reliance (BB only, where
+missingness is highest); (3) prior mis-specification (AC and BB, the
+most-complete and the most-vulnerable populations).
+
+## 13.1 log1p(fec) sensitivity for β_G — likelihood specification
+
+Refit AC with `log1p(fec)` z-scored as the fecundity column. If β_G is
+stable across the two specifications the Gaussian-on-raw-counts
+approximation is defensible; if it shifts materially, prefer the log1p
+specification (or move to a Poisson family in MCMCglmm).
+
+```{r beta-genetic-fec-sensitivity}
+prep_AC_logfec <- pop_data$AC
+prep_AC_logfec$fp <- prep_AC_logfec$fp %>%
+  mutate(fec_z = as.numeric(scale(log1p(fec))))
+
+fits_logfec_AC <- fit_animal_model(prep_AC_logfec, peds_list$AC,
+                                   prior_type = "px")
+post_logfec_AC <- extract_pop(fits_logfec_AC)
+bG_logfec_AC   <- beta_genetic_posterior(post_logfec_AC$G_array,
+                                         fec_index = which(TRAITS == "fec_z"))
+hpd_logfec <- apply(bG_logfec_AC, 2, safe_hpd)
+
+beta_G_fec_compare <- bind_rows(
+  beta_G_tbl %>%
+    filter(Pop == "AC") %>%
+    transmute(trait,
+              beta_G = beta_G_mean, l95 = beta_G_l95, u95 = beta_G_u95,
+              spec   = "raw fec (main)"),
+  tibble(trait  = colnames(bG_logfec_AC),
+         beta_G = colMeans(bG_logfec_AC, na.rm = TRUE),
+         l95    = hpd_logfec[1, ], u95 = hpd_logfec[2, ],
+         spec   = "log1p(fec) sensitivity")
+)
+beta_G_fec_compare
+```
+
+## 13.2 BB trait-drop sensitivity — imputation reliance
+
+BB has the highest missingness (SLA 69%, msm 75%). Its five-trait r_A
+estimates depend partly on MCMCglmm's multivariate-normal imputation
+rather than directly observed data. We refit BB twice — once dropping SLA,
+once dropping msm — and compare the surviving r_A entries against the
+five-trait posterior. Stable estimates ⇒ data-driven; large shifts or
+sign flips ⇒ imputation-driven.
+
+### 13.2.1 Subset-trait refit function
+
+A trimmed version of `fit_animal_model` that takes a `traits_keep`
+argument and rebuilds the prior at the matching dimension.
+
+```{r bb-subset-fn}
+fit_animal_model_subset <- function(prep, peds, traits_keep,
+                                    nitt = NITT, burnin = BURNIN, thin = THIN,
+                                    n_chains = N_CHAINS) {
+  nt_k <- length(traits_keep)
+  dat  <- as.data.frame(prep$fp)
+  Ainv <- peds$Ainv
+  dat$animal <- factor(trimws(as.character(dat$animal)),
+                       levels = rownames(Ainv))
+  dat$animal     <- droplevels(dat$animal)
+  dat$dam        <- factor(dat$dam)
+  dat$block      <- factor(dat$block)
+  dat$transect_f <- factor(dat$transect_f)
+
+  prior <- list(
+    G = list(
+      G1 = list(V = diag(nt_k), nu = nt_k, alpha.mu = rep(0, nt_k),
+                alpha.V = diag(nt_k) * 1000),  # animal
+      G2 = list(V = diag(nt_k), nu = nt_k, alpha.mu = rep(0, nt_k),
+                alpha.V = diag(nt_k) * 1000),  # dam
+      G3 = list(V = diag(nt_k), nu = 0.002),   # block
+      G4 = list(V = diag(nt_k), nu = 0.002)    # transect
+    ),
+    R = list(V = diag(nt_k), nu = nt_k)
+  )
+
+  lhs     <- paste0("cbind(", paste(traits_keep, collapse = ", "), ")")
+  fixed_f <- as.formula(paste(lhs, "~ trait - 1"))
+
+  fit_one <- function(seed) {
+    set.seed(seed)
+    MCMCglmm(
+      fixed    = fixed_f,
+      random   = ~ us(trait):animal + us(trait):dam
+                 + idh(trait):block + idh(trait):transect_f,
+      rcov     = ~ us(trait):units,
+      family   = rep("gaussian", nt_k),
+      ginverse = list(animal = Ainv),
+      data     = dat,
+      prior    = prior,
+      nitt     = nitt, burnin = burnin, thin = thin,
+      verbose  = FALSE
+    )
+  }
+  purrr::map(seq_len(n_chains), fit_one)
+}
+
+extract_rA_subset <- function(fits, traits_keep) {
+  VCV  <- do.call(rbind, lapply(fits, function(f) as.matrix(f$VCV)))
+  nt_k <- length(traits_keep)
+  G_arr <- array(NA_real_, dim = c(nrow(VCV), nt_k, nt_k),
+                 dimnames = list(NULL, traits_keep, traits_keep))
+  for (i in seq_along(traits_keep)) for (j in seq_along(traits_keep)) {
+    G_arr[, i, j] <- VCV[, paste0("trait", traits_keep[i], ":trait",
+                                  traits_keep[j], ".animal")]
+  }
+  rA_arr <- array(NA_real_, dim = dim(G_arr), dimnames = dimnames(G_arr))
+  for (k in seq_len(dim(G_arr)[1])) rA_arr[k, , ] <- cov2cor_mat(G_arr[k, , ])
+  rA_arr
+}
+```
+
+### 13.2.2 Run BB without SLA and without msm
+
+```{r bb-subset-fits}
+traits_no_SLA <- setdiff(TRAITS, "SLA_z")
+traits_no_msm <- setdiff(TRAITS, "msm_z")
+
+fits_BB_no_SLA <- fit_animal_model_subset(pop_data$BB, peds_list$BB,
+                                          traits_no_SLA)
+fits_BB_no_msm <- fit_animal_model_subset(pop_data$BB, peds_list$BB,
+                                          traits_no_msm)
+
+rA_BB_main   <- post_main$BB$rA_array
+rA_BB_no_SLA <- extract_rA_subset(fits_BB_no_SLA, traits_no_SLA)
+rA_BB_no_msm <- extract_rA_subset(fits_BB_no_msm, traits_no_msm)
+```
+
+### 13.2.3 Compare overlapping r_A entries
+
+`delta` is the per-pair shift in posterior mean (subset − main). A
+well-conditioned five-trait fit should show `max_abs_delta < 0.1`,
+`n_HPD_nonoverlap = 0`, and no sign changes.
+
+```{r bb-subset-compare}
+compare_rA <- function(rA_main, rA_sub, traits_sub, label) {
+  ut <- which(upper.tri(diag(length(traits_sub))), arr.ind = TRUE)
+  purrr::map_dfr(seq_len(nrow(ut)), function(idx) {
+    i  <- ut[idx, 1]; j <- ut[idx, 2]
+    t1 <- traits_sub[i]; t2 <- traits_sub[j]
+    x_main <- rA_main[, t1, t2]
+    x_sub  <- rA_sub[, i, j]
+    h_main <- safe_hpd(x_main); h_sub <- safe_hpd(x_sub)
+    tibble(spec        = label,
+           trait1      = t1, trait2 = t2,
+           rA_main     = mean(x_main, na.rm = TRUE),
+           rA_main_l95 = h_main[1], rA_main_u95 = h_main[2],
+           rA_sub      = mean(x_sub,  na.rm = TRUE),
+           rA_sub_l95  = h_sub[1],   rA_sub_u95  = h_sub[2],
+           delta       = mean(x_sub, na.rm = TRUE) -
+                         mean(x_main, na.rm = TRUE))
+  })
+}
+
+rA_BB_sensitivity <- bind_rows(
+  compare_rA(rA_BB_main, rA_BB_no_SLA, traits_no_SLA, "drop SLA"),
+  compare_rA(rA_BB_main, rA_BB_no_msm, traits_no_msm, "drop msm")
+)
+rA_BB_sensitivity
+
+rA_BB_sens_summary <- rA_BB_sensitivity %>%
+  group_by(spec) %>%
+  summarise(
+    n_pairs          = n(),
+    max_abs_delta    = max(abs(delta), na.rm = TRUE),
+    median_abs_delta = median(abs(delta), na.rm = TRUE),
+    n_HPD_nonoverlap = sum(rA_main_u95 < rA_sub_l95
+                           | rA_sub_u95 < rA_main_l95, na.rm = TRUE),
+    n_sign_change    = sum(sign(rA_main) != sign(rA_sub), na.rm = TRUE),
+    .groups = "drop"
+  )
+rA_BB_sens_summary
+```
+
+## 13.3 Prior sensitivity (PX vs IW) — AC and BB
+
+Three sets of quantities are compared between the PX and IW priors:
+
+- **r_A** (genetic correlations) — the original check.
+- **V_A diagonals** — prior sensitivity here would indicate that
+  heritability estimates are prior-dominated.
+- **V_M diagonals** — with only ~3 full-sibs per dam, V_M is weakly
+  identified and the most likely place to see a prior-driven shift.
+
+### 13.3.1 Extraction helper covering all three quantities
+
+```{r prior-sensitivity-fn}
+extract_prior_sensitivity <- function(fits) {
+  VCV      <- combine_VCV(fits)
+  G_array  <- build_G_array(VCV, "animal")
+  M_array  <- build_G_array(VCV, "dam")
+  rA_array <- rA_from_G(G_array)
+
+  s_rA <- posterior_summary_matrix(rA_array)
+  rA_tbl <- tibble(
+    quantity = paste0("rA_",
+                      outer(TRAITS, TRAITS, paste, sep = "/")[upper.tri(diag(NT))]),
+    mean = s_rA$mean[upper.tri(s_rA$mean)],
+    l95  = s_rA$l95[upper.tri(s_rA$l95)],
+    u95  = s_rA$u95[upper.tri(s_rA$u95)]
+  )
+
+  Va_draws <- sapply(seq_len(NT), function(i) G_array[, i, i])
+  Va_tbl <- tibble(
+    quantity = paste0("Va_", TRAITS),
+    mean = colMeans(Va_draws, na.rm = TRUE),
+    l95  = apply(Va_draws, 2, function(x) safe_hpd(x)[1]),
+    u95  = apply(Va_draws, 2, function(x) safe_hpd(x)[2])
+  )
+
+  Vm_draws <- sapply(seq_len(NT), function(i) M_array[, i, i])
+  Vm_tbl <- tibble(
+    quantity = paste0("Vm_", TRAITS),
+    mean = colMeans(Vm_draws, na.rm = TRUE),
+    l95  = apply(Vm_draws, 2, function(x) safe_hpd(x)[1]),
+    u95  = apply(Vm_draws, 2, function(x) safe_hpd(x)[2])
+  )
+
+  bind_rows(rA_tbl, Va_tbl, Vm_tbl)
+}
+```
+
+### 13.3.2 Long-format comparison
+
+```{r prior-sensitivity-long}
+ac_px <- extract_prior_sensitivity(fits_main$AC) %>%
+  mutate(Pop = "AC", prior = "PX (default)")
+ac_iw <- extract_prior_sensitivity(fits_iw_AC) %>%
+  mutate(Pop = "AC", prior = "IW(V=I, nu=nt)")
+
+bb_px <- extract_prior_sensitivity(fits_main$BB) %>%
+  mutate(Pop = "BB", prior = "PX (default)")
+bb_iw <- extract_prior_sensitivity(fits_iw_BB) %>%
+  mutate(Pop = "BB", prior = "IW(V=I, nu=nt)")
+
+prior_compare <- bind_rows(ac_px, ac_iw, bb_px, bb_iw) %>%
+  select(Pop, prior, quantity, mean, l95, u95)
+prior_compare
+```
+
+### 13.3.3 Wide format with `delta_mean` and HPD-overlap flag
+
+```{r prior-sensitivity-wide}
+prior_compare_wide <- prior_compare %>%
+  pivot_wider(names_from = prior,
+              values_from = c(mean, l95, u95),
+              names_glue = "{prior}_{.value}") %>%
+  mutate(
+    delta_mean = `IW(V=I, nu=nt)_mean` - `PX (default)_mean`,
+    hpd_overlap = !(`PX (default)_u95` < `IW(V=I, nu=nt)_l95` |
+                    `IW(V=I, nu=nt)_u95` < `PX (default)_l95`)
+  ) %>%
+  arrange(Pop, quantity)
+prior_compare_wide
+```
+
+# 14 · Session info
+
+```{r session}
+sessionInfo()
+```
