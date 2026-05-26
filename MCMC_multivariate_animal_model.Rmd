@@ -421,8 +421,13 @@ peds_list <- purrr::map(pop_data, ~ build_pedigree(.x$fp))
 fits_main <- purrr::map2(pop_data, peds_list,
                   ~ fit_animal_model(.x, .y, prior_type = "px"))
 
-# Sensitivity: refit AC with the informative IW prior.
+# Sensitivity: refit AC and BB with the informative IW prior.
+# AC: the "reference" population with the most complete data.
+# BB: the population with the thinnest spatial structure (156 Locations,
+#     ~1–3 F-plants each) and highest missingness — where prior sensitivity
+#     matters most.
 fits_iw_AC <- fit_animal_model(pop_data$AC, peds_list$AC, prior_type = "iw")
+fits_iw_BB <- fit_animal_model(pop_data$BB, peds_list$BB, prior_type = "iw")
 ```
 
 # Convergence diagnostics
@@ -616,6 +621,29 @@ point #4): non-survivors among the F-plant set enter the regression with W = 0.
 True total-fitness β (including plants without trait measurements) would require
 imputed traits; viability selection in the full sown cohort is quantified
 separately by the segment-level survival GLM below.
+
+**Scale and likelihood caveats for β_G.**
+Two approximations apply and should be noted when interpreting β_G:
+
+1. *Scale*: the fitness measure entered into G is `fec_z` — z-scored raw
+   fecundity — not relative fitness (W / W̄). The resulting β_G is therefore
+   on the scale of "additive genetic SD change in trait z per additive genetic
+   SD change in fecundity", not the strict per-generation response of the
+   breeder's equation. Strict Robertson–Price requires relative fitness as the
+   w column of G; the present formulation is a linear-scale analogue that is
+   comparable across populations (because all traits and fitness are z-scored
+   within population) but should not be plugged directly into Δz̄ = G β_G
+   without rescaling by W̄.
+
+2. *Gaussian likelihood on count data*: fecundity is a non-negative integer and
+   is right-skewed. Modelling it as Gaussian within MCMCglmm attenuates
+   V_A(fec) and Cov_A(z, fec) relative to a correctly specified Poisson or
+   negative-binomial likelihood, which in turn attenuates β_G. The
+   `beta-genetic-fec-sensitivity` chunk below refits AC with log1p(fec)
+   z-scored as the fecundity column; if β_G is stable across the two
+   specifications the Gaussian approximation is defensible. Where estimates
+   differ materially, interpret the main-analysis β_G as conservative
+   (downward-biased in magnitude).
 
 ```{r beta-phenotypic}
 beta_pheno <- function(prep, total_fitness = FALSE) {
@@ -979,6 +1007,7 @@ eig_summary_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
     lambda2_mean = mean(e$eigvals[, 2], na.rm = TRUE),
     lambda2_l95  = lam_hpd[1, 2], lambda2_u95 = lam_hpd[2, 2],
     lambda3_mean = mean(e$eigvals[, 3], na.rm = TRUE),
+    lambda3_l95  = lam_hpd[1, 3], lambda3_u95 = lam_hpd[2, 3],
     lambda4_mean = mean(e$eigvals[, 4], na.rm = TRUE),
     lambda5_mean = mean(e$eigvals[, 5], na.rm = TRUE),
     prop_PC1_mean = mean(e$prop_pc1, na.rm = TRUE),
@@ -990,6 +1019,24 @@ eig_summary_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
   )
 })
 eig_summary_tbl
+
+# PC2 reliability: loadings averaged across draws are meaningful only when λ₂
+# and λ₃ are well-separated. When their HPD intervals overlap, the eigenvectors
+# for those two axes rotate freely between draws and sign-alignment alone cannot
+# stabilise them — the averaged loadings pull toward the reference and
+# understate uncertainty. Flag populations where overlap occurs so that PC2
+# results are interpreted cautiously or suppressed in the manuscript.
+pc2_reliable_tbl <- eig_summary_tbl %>%
+  mutate(
+    pc2_reliable = lambda2_l95 > lambda3_u95,
+    overlap_note = ifelse(pc2_reliable,
+                          "λ₂ and λ₃ HPDs do not overlap — PC2 loadings are stable",
+                          "λ₂ and λ₃ HPDs OVERLAP — PC2 loadings are unreliable")
+  ) %>%
+  select(Pop, lambda2_mean, lambda2_l95, lambda2_u95,
+         lambda3_mean, lambda3_l95, lambda3_u95,
+         pc2_reliable, overlap_note)
+pc2_reliable_tbl
 
 # PC1 trait loadings (and HPDs) per population (Table S9 analogue).
 pc1_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
@@ -1007,6 +1054,8 @@ pc1_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
 pc1_loadings_tbl
 
 # PC2 trait loadings (and HPDs) per population (Table S10 analogue).
+# Rows for populations where pc2_reliable == FALSE are flagged; interpret
+# or report those loadings with caution.
 pc2_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
   pc2 <- e$loadings[, , 2]                # iter x NT
   hp  <- apply(pc2, 2, safe_hpd)
@@ -1018,8 +1067,19 @@ pc2_loadings_tbl <- purrr::imap_dfr(eig_results, function(e, pop) {
     loading_u95  = hp[2, ],
     main_contributor = abs(colMeans(pc2, na.rm = TRUE)) > 0.2
   )
-})
+}) %>%
+  left_join(pc2_reliable_tbl %>% select(Pop, pc2_reliable), by = "Pop")
+
 pc2_loadings_tbl
+
+unreliable_pops <- pc2_reliable_tbl %>%
+  filter(!pc2_reliable) %>%
+  pull(Pop)
+if (length(unreliable_pops) > 0)
+  message("PC2 loadings are unreliable for: ",
+          paste(unreliable_pops, collapse = ", "),
+          " (λ₂ and λ₃ HPDs overlap). ",
+          "Suppress or caveat PC2 results for these populations in the manuscript.")
 
 # Compact PC1-contributor string per population (matches the manuscript table
 # format e.g. "δ13C (−), SLA (+), fecundity (−)").
@@ -1288,26 +1348,86 @@ rA_BB_sens_summary <- rA_BB_sensitivity %>%
 rA_BB_sens_summary
 ```
 
-# Prior sensitivity (AC only)
+# Prior sensitivity (AC and BB)
+
+Prior sensitivity is checked for two populations: AC (most complete data,
+reference population) and BB (highest missingness, thinnest spatial structure —
+the population where the PX prior does the most work). Three sets of quantities
+are compared between the PX and IW priors:
+
+- **r_A** (genetic correlations) — the original check.
+- **V_A diagonals** — additive genetic variances; prior sensitivity here
+  would indicate that heritability estimates are prior-dominated.
+- **V_M diagonals** — maternal variances; with ~3 full-sibs per dam, V_M
+  is weakly identified and most likely to shift between priors.
 
 ```{r prior-sensitivity}
-extract_rA_summary <- function(fits) {
-  VCV <- combine_VCV(fits)
+extract_prior_sensitivity <- function(fits) {
+  VCV     <- combine_VCV(fits)
   G_array <- build_G_array(VCV, "animal")
+  M_array <- build_G_array(VCV, "dam")
   rA_array <- rA_from_G(G_array)
-  s <- posterior_summary_matrix(rA_array)
-  tibble(
-    trait_pair = outer(TRAITS, TRAITS, paste, sep = "/")[upper.tri(diag(NT))],
-    rA_mean = s$mean[upper.tri(s$mean)],
-    rA_l95  = s$l95[upper.tri(s$l95)],
-    rA_u95  = s$u95[upper.tri(s$u95)]
+
+  # r_A upper-triangle pairs
+  s_rA <- posterior_summary_matrix(rA_array)
+  rA_tbl <- tibble(
+    quantity = paste0("rA_",
+                      outer(TRAITS, TRAITS, paste, sep = "/")[upper.tri(diag(NT))]),
+    mean = s_rA$mean[upper.tri(s_rA$mean)],
+    l95  = s_rA$l95[upper.tri(s_rA$l95)],
+    u95  = s_rA$u95[upper.tri(s_rA$u95)]
   )
+
+  # V_A diagonals (one row per trait)
+  Va_draws <- sapply(seq_len(NT), function(i) G_array[, i, i])
+  Va_tbl <- tibble(
+    quantity = paste0("Va_", TRAITS),
+    mean = colMeans(Va_draws, na.rm = TRUE),
+    l95  = apply(Va_draws, 2, function(x) safe_hpd(x)[1]),
+    u95  = apply(Va_draws, 2, function(x) safe_hpd(x)[2])
+  )
+
+  # V_M diagonals (one row per trait)
+  Vm_draws <- sapply(seq_len(NT), function(i) M_array[, i, i])
+  Vm_tbl <- tibble(
+    quantity = paste0("Vm_", TRAITS),
+    mean = colMeans(Vm_draws, na.rm = TRUE),
+    l95  = apply(Vm_draws, 2, function(x) safe_hpd(x)[1]),
+    u95  = apply(Vm_draws, 2, function(x) safe_hpd(x)[2])
+  )
+
+  bind_rows(rA_tbl, Va_tbl, Vm_tbl)
 }
 
-ac_px <- extract_rA_summary(fits_main$AC) %>% mutate(prior = "PX (default)")
-ac_iw <- extract_rA_summary(fits_iw_AC)   %>% mutate(prior = "IW(V=I, nu=nt)")
-prior_compare <- bind_rows(ac_px, ac_iw)
+# AC comparison
+ac_px <- extract_prior_sensitivity(fits_main$AC) %>%
+  mutate(Pop = "AC", prior = "PX (default)")
+ac_iw <- extract_prior_sensitivity(fits_iw_AC) %>%
+  mutate(Pop = "AC", prior = "IW(V=I, nu=nt)")
+
+# BB comparison
+bb_px <- extract_prior_sensitivity(fits_main$BB) %>%
+  mutate(Pop = "BB", prior = "PX (default)")
+bb_iw <- extract_prior_sensitivity(fits_iw_BB) %>%
+  mutate(Pop = "BB", prior = "IW(V=I, nu=nt)")
+
+prior_compare <- bind_rows(ac_px, ac_iw, bb_px, bb_iw) %>%
+  select(Pop, prior, quantity, mean, l95, u95)
+
 prior_compare
+
+# Wide format for easier comparison: PX vs IW side-by-side per quantity.
+prior_compare_wide <- prior_compare %>%
+  pivot_wider(names_from = prior,
+              values_from = c(mean, l95, u95),
+              names_glue = "{prior}_{.value}") %>%
+  mutate(
+    delta_mean = `IW(V=I, nu=nt)_mean` - `PX (default)_mean`,
+    hpd_overlap = !(`PX (default)_u95` < `IW(V=I, nu=nt)_l95` |
+                    `IW(V=I, nu=nt)_u95` < `PX (default)_l95`)
+  ) %>%
+  arrange(Pop, quantity)
+prior_compare_wide
 ```
 
 # Session info
