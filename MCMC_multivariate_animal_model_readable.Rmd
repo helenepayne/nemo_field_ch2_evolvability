@@ -10,7 +10,14 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# Persist figures as PNGs in figures/ alongside the embedded HTML versions.
+# Tables are written to tables/ in the save-outputs chunk near the end.
+dir.create("figures", showWarnings = FALSE)
+dir.create("tables",  showWarnings = FALSE)
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, message = FALSE,
+  fig.path = "figures/", dpi = 300, dev = "png"
+)
 ```
 
 # 1 · Motivation
@@ -102,6 +109,32 @@ if (TEST_RUN) {
   THIN     <- 100
   N_SKEWERS <- 2000
   N_POST_DRAWS_FOR_SKEWERS <- 1000
+}
+```
+
+## 2.2.1 Fit caching
+
+The full-resolution MCMC fits take ~3–5 h on this machine. To make it
+practical to re-knit just the downstream sections (β_G, plots, sensitivity)
+without re-running MCMC, every fit is saved to `cache/` as an RDS file and
+reloaded on subsequent knits. Set `FORCE_REFIT <- TRUE` to bypass the cache
+(e.g. after changing the model formula or prior).
+
+```{r fit-cache-setup}
+FORCE_REFIT <- FALSE
+CACHE_DIR   <- here::here("cache")
+dir.create(CACHE_DIR, showWarnings = FALSE, recursive = TRUE)
+
+cache_fit <- function(name, expr) {
+  fpath <- file.path(CACHE_DIR, paste0(name, ".rds"))
+  if (!FORCE_REFIT && file.exists(fpath)) {
+    message("Loading cached fit: ", name)
+    return(readRDS(fpath))
+  }
+  message("Fitting (not cached): ", name)
+  obj <- force(expr)
+  saveRDS(obj, fpath)
+  obj
 }
 ```
 
@@ -500,8 +533,10 @@ peds_list <- purrr::map(pop_data, ~ build_pedigree(.x$fp))
 ## 4.4 Fit the main models (PX prior, all four populations)
 
 ```{r fit-main}
-fits_main <- purrr::map2(pop_data, peds_list,
-                  ~ fit_animal_model(.x, .y, prior_type = "px"))
+fits_main <- cache_fit("fits_main_px", {
+  purrr::map2(pop_data, peds_list,
+              ~ fit_animal_model(.x, .y, prior_type = "px"))
+})
 ```
 
 ## 4.5 Fit sensitivity models with the IW prior
@@ -512,8 +547,10 @@ missingness, making it the population where the PX prior does the most
 work. We refit both with the original IW prior so we can compare in §13.3.
 
 ```{r fit-iw-sensitivity}
-fits_iw_AC <- fit_animal_model(pop_data$AC, peds_list$AC, prior_type = "iw")
-fits_iw_BB <- fit_animal_model(pop_data$BB, peds_list$BB, prior_type = "iw")
+fits_iw_AC <- cache_fit("fits_iw_AC",
+  fit_animal_model(pop_data$AC, peds_list$AC, prior_type = "iw"))
+fits_iw_BB <- cache_fit("fits_iw_BB",
+  fit_animal_model(pop_data$BB, peds_list$BB, prior_type = "iw"))
 ```
 
 # 5 · MCMC diagnostics
@@ -1280,20 +1317,34 @@ computed draw by draw to propagate posterior uncertainty.
    whether this attenuation matters in practice.
 
 ```{r beta-genetic-fn}
-beta_genetic_posterior <- function(G_array, fec_index = 5) {
+beta_genetic_posterior <- function(G_array, fec_index = 5,
+                                   rcond_threshold = 1e-10) {
   z_idx <- setdiff(seq_len(NT), fec_index)
   niter <- dim(G_array)[1]
   out   <- matrix(NA_real_, nrow = niter, ncol = length(z_idx),
                   dimnames = list(NULL, TRAITS[z_idx]))
+  n_dropped_rcond <- 0L
+  n_dropped_solve <- 0L
   for (k in seq_len(niter)) {
     Gk    <- G_array[k, , ]
     G_zz  <- Gk[z_idx, z_idx]
     G_zw  <- Gk[z_idx, fec_index]
+    if (!is.finite(rcond(G_zz)) || rcond(G_zz) < rcond_threshold) {
+      n_dropped_rcond <- n_dropped_rcond + 1L
+      next
+    }
     out[k, ] <- tryCatch(
       as.numeric(solve(G_zz, G_zw)),
-      error = function(e) rep(NA_real_, length(z_idx))
+      error = function(e) {
+        n_dropped_solve <<- n_dropped_solve + 1L
+        rep(NA_real_, length(z_idx))
+      }
     )
   }
+  attr(out, "n_total")         <- niter
+  attr(out, "n_dropped_rcond") <- n_dropped_rcond
+  attr(out, "n_dropped_solve") <- n_dropped_solve
+  attr(out, "n_kept")          <- niter - n_dropped_rcond - n_dropped_solve
   out
 }
 
@@ -1302,16 +1353,24 @@ beta_G_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
                                fec_index = which(TRAITS == "fec_z"))
   hpds <- apply(bG, 2, safe_hpd)
   tibble(
-    Pop         = pop,
-    trait       = colnames(bG),
-    beta_G_mean = colMeans(bG, na.rm = TRUE),
-    beta_G_l95  = hpds[1, ],
-    beta_G_u95  = hpds[2, ],
-    sig         = (hpds[1, ] > 0) | (hpds[2, ] < 0)
+    Pop            = pop,
+    trait          = colnames(bG),
+    beta_G_median  = apply(bG, 2, median, na.rm = TRUE),
+    beta_G_mean    = colMeans(bG, na.rm = TRUE),
+    beta_G_l95     = hpds[1, ],
+    beta_G_u95     = hpds[2, ],
+    n_kept         = attr(bG, "n_kept"),
+    n_dropped      = attr(bG, "n_total") - attr(bG, "n_kept"),
+    sig            = (hpds[1, ] > 0) | (hpds[2, ] < 0)
   )
 })
 beta_G_tbl
 ```
+
+The `n_dropped` column reports posterior draws excluded because **G**_zz was
+near-singular (`rcond(G_zz) < 1e-10`) and `solve()` would have returned an
+explosive value. `beta_G_median` is robust to remaining tail draws; the
+`beta_G_mean` column is retained for diagnostic comparison only.
 
 ## 11.3 Side-by-side comparison plot
 
@@ -1325,7 +1384,7 @@ plot_dat <- bind_rows(
               type = "Phenotypic β (fecundity)"),
   beta_G_tbl %>%
     transmute(Pop, trait,
-              mean = beta_G_mean, l95 = beta_G_l95, u95 = beta_G_u95,
+              mean = beta_G_median, l95 = beta_G_l95, u95 = beta_G_u95,
               type = "Genetic β_G")
 ) %>%
   mutate(
@@ -1449,8 +1508,8 @@ prep_AC_logfec <- pop_data$AC
 prep_AC_logfec$fp <- prep_AC_logfec$fp %>%
   mutate(fec_z = as.numeric(scale(log1p(fec))))
 
-fits_logfec_AC <- fit_animal_model(prep_AC_logfec, peds_list$AC,
-                                   prior_type = "px")
+fits_logfec_AC <- cache_fit("fits_logfec_AC",
+  fit_animal_model(prep_AC_logfec, peds_list$AC, prior_type = "px"))
 post_logfec_AC <- extract_pop(fits_logfec_AC)
 bG_logfec_AC   <- beta_genetic_posterior(post_logfec_AC$G_array,
                                          fec_index = which(TRAITS == "fec_z"))
@@ -1552,10 +1611,10 @@ extract_rA_subset <- function(fits, traits_keep) {
 traits_no_SLA <- setdiff(TRAITS, "SLA_z")
 traits_no_msm <- setdiff(TRAITS, "msm_z")
 
-fits_BB_no_SLA <- fit_animal_model_subset(pop_data$BB, peds_list$BB,
-                                          traits_no_SLA)
-fits_BB_no_msm <- fit_animal_model_subset(pop_data$BB, peds_list$BB,
-                                          traits_no_msm)
+fits_BB_no_SLA <- cache_fit("fits_BB_no_SLA",
+  fit_animal_model_subset(pop_data$BB, peds_list$BB, traits_no_SLA))
+fits_BB_no_msm <- cache_fit("fits_BB_no_msm",
+  fit_animal_model_subset(pop_data$BB, peds_list$BB, traits_no_msm))
 
 rA_BB_main   <- post_main$BB$rA_array
 rA_BB_no_SLA <- extract_rA_subset(fits_BB_no_SLA, traits_no_SLA)
@@ -1690,7 +1749,78 @@ prior_compare_wide <- prior_compare %>%
 prior_compare_wide
 ```
 
-# 14 · Session info
+# 14 · Save tables to disk
+
+Every named table referenced in the document is written here to `tables/`
+as a CSV. Figures are written to `figures/` automatically via the
+`fig.path` chunk option set in the setup block (top of file).
+
+```{r save-outputs}
+save_tbl <- function(x, name) {
+  if (is.null(x)) return(invisible(NULL))
+  readr::write_csv(x, file.path("tables", paste0(name, ".csv")))
+}
+
+# Section 3 — data + sample sizes
+save_tbl(sample_sizes,       "03_sample_sizes")
+save_tbl(missingness_tbl,    "03_missingness_per_trait")
+save_tbl(trait_means_tbl,    "03_raw_trait_means")
+
+# Section 5 — convergence
+save_tbl(conv_health,                       "05_convergence_rhat_health")
+save_tbl(conv_tbl %>% filter(psrf > 1.1)
+                  %>% arrange(desc(psrf)),  "05_convergence_rhat_above_1_1")
+save_tbl(ess_health,                        "05_convergence_ess_health")
+save_tbl(ess_tbl  %>% arrange(ESS)
+                  %>% head(20),             "05_convergence_ess_lowest20")
+
+# Section 6 — variance components and heritability
+save_tbl(Va_tbl, "06_Va_diagonals")
+save_tbl(Vm_tbl, "06_Vm_diagonals")
+save_tbl(h2_tbl, "06_h2_narrow_sense")
+
+# Section 7 — genetic correlations
+save_tbl(rA_pairs_tbl, "07_rA_pairs")
+
+# Section 8 — eigenanalysis
+save_tbl(eig_summary_tbl,  "08_eigen_summary")
+save_tbl(pc2_reliable_tbl, "08_pc2_reliability")
+save_tbl(pc1_loadings_tbl, "08_pc1_loadings")
+save_tbl(pc2_loadings_tbl, "08_pc2_loadings")
+save_tbl(pc1_contrib_str,  "08_pc1_contributors")
+save_tbl(pc2_contrib_str,  "08_pc2_contributors")
+
+# Section 9 — evolvability
+save_tbl(evol_tbl, "09_evolvability_metrics")
+
+# Section 10 — Random Skewers
+save_tbl(rs_tbl, "10_random_skewers")
+
+# Section 11 — selection
+save_tbl(beta_P_tbl,         "11_beta_P_fec_only")
+save_tbl(beta_P_total,       "11_beta_P_total_fitness")
+save_tbl(beta_P_all,         "11_beta_P_combined")
+save_tbl(beta_P_fit_summary, "11_beta_P_fit_summary")
+save_tbl(beta_G_tbl,         "11_beta_G")
+
+# Section 12 — viability
+save_tbl(surv_summary, "12_survival_glm")
+save_tbl(overdisp_tbl, "12_overdispersion")
+
+# Section 13 — sensitivity analyses
+save_tbl(beta_G_fec_compare,  "13_sensitivity_log1p_fec")
+save_tbl(rA_BB_sensitivity,   "13_sensitivity_BB_trait_drop")
+save_tbl(rA_BB_sens_summary,  "13_sensitivity_BB_trait_drop_summary")
+save_tbl(prior_compare,       "13_sensitivity_prior_long")
+save_tbl(prior_compare_wide,  "13_sensitivity_prior_wide")
+
+message("Wrote ", length(list.files("tables", pattern = "\\.csv$")),
+        " CSV files to tables/, ",
+        length(list.files("figures", pattern = "\\.png$")),
+        " PNG files to figures/")
+```
+
+# 15 · Session info
 
 ```{r session}
 sessionInfo()
