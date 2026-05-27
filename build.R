@@ -19,6 +19,6 @@ fetch_dryad(c("AC_compiledsheet_full_2022.csv",
               "BO_compiledsheet_full_2022.csv",
               "HR_compiledsheet_full_2022.csv"))
 
-rmarkdown::render("MCMC_multivariate_animal_model.Rmd",
+rmarkdown::render("MCMC_multivariate_animal_model_readable.Rmd",
                   output_format = "html_document",
-                  output_file   = "MCMC_multivariate_animal_model.html")
+                  output_file   = "MCMC_multivariate_animal_model_readable.html")
