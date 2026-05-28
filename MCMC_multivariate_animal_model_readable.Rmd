@@ -476,6 +476,16 @@ with the following random-effect structure:
 The diagonal (`idh`) form for block and transect avoids estimating dozens
 of off-diagonal nuisance covariances we have no use for.
 
+All five traits — including fecundity — are modelled with a Gaussian
+family on the within-population z-scale. Fecundity is biologically a
+zero-inflated, right-skewed count, so the Gaussian likelihood is a
+convenience choice that will attenuate V_A(fec) and Cov_A(z, fec)
+relative to a Poisson or negative-binomial family. We test sensitivity
+to this in §13.1 by refitting AC with `log1p(fec)` z-scored as the
+fecundity column; a Poisson/NB animal model is left for future work
+because it would also require revisiting the joint Gaussian imputation
+of missing trait values that MCMCglmm uses for the other four traits.
+
 ## 4.2 Priors: parameter-expanded vs inverse-Wishart
 
 Two priors are used:
@@ -809,11 +819,16 @@ Va_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
 Va_tbl
 ```
 
-## 6.6 V_M diagonals (maternal variance)
+## 6.6 V_M diagonals (maternal/dam variance)
 
-Compare these against V_A in the previous table — if V_M is large for a
-trait, the original analysis (which lacked a dam effect) was almost
-certainly inflating V_A for that trait.
+V_M from `us(trait):dam` is the variance among dams — it captures
+maternal genetic effects, maternal common-environment effects, and
+seed-provisioning effects together, because the design has no grand-dam
+replication that could separate them. Compare against V_A in the
+previous table: if V_M is large for a trait, the original analysis
+(which lacked a dam effect) was almost certainly partitioning some of
+that maternal/dam variance into V_A. A large V_M does not, on its own,
+imply heritable maternal effects.
 
 **Table 7.** Maternal/dam variance (V_M) diagonals per population and
 trait, with 95% HPD intervals. Compare against V_A in Table 6 — large
@@ -1118,14 +1133,24 @@ if (length(unreliable_pops) > 0)
 
 ## 8.6 Compact contributor strings (manuscript table format)
 
-A trait counts as a "main contributor" to a PC if `|loading| > 0.2`. The
-string format below mirrors the original manuscript table —
-`"δ13C (−), SLA (+), fecundity (−)"`.
+A trait counts as a "main contributor" to a PC if `|loading| > 0.2`. We
+also flag whether the PC is **reliable** at each population: a PC's
+loadings are considered reliable only if at least one trait loading
+has a 95% HPD that excludes zero. PC1 at AC, BB and BO has wide enough
+loading HPDs that no individual loading excludes zero, so the
+contributor strings for those populations should be read as posterior
+means of an underdetermined eigenvector rather than as resolved trait
+contributions. Only HR PC1 (d13C and msm both with HPDs excluding 0)
+is loading-reliable. PC2 reliability is also flagged via the λ₂/λ₃
+overlap criterion from Table 12 (unreliable at all four populations).
 
 **Table 15.** Compact string summary of PC1 (`pc1_contrib_str`) and
 PC2 (`pc2_contrib_str`) main contributors per population, in the
 manuscript table format. A trait is listed if |loading| > 0.2 with the
-sign of its mean loading.
+sign of its mean loading. The `pc1_reliable` / `pc2_reliable` columns
+flag whether the PC is interpretable at that population
+(`pc1_reliable = TRUE` iff ≥ 1 PC1 loading HPD excludes 0;
+`pc2_reliable` from Table 12).
 
 ```{r pc-contributor-strings}
 make_contrib_str <- function(loadings_tbl) {
@@ -1144,12 +1169,21 @@ make_contrib_str <- function(loadings_tbl) {
     summarise(contributors = paste(label, collapse = ", "),
               .groups = "drop")
 }
+
+pc1_reliable_tbl <- pc1_loadings_tbl %>%
+  group_by(Pop) %>%
+  summarise(pc1_reliable = any((loading_l95 > 0) | (loading_u95 < 0),
+                               na.rm = TRUE),
+            .groups = "drop")
+
 pc1_contrib_str <- make_contrib_str(pc1_loadings_tbl) %>%
-  rename(main_PC1_contributors = contributors)
+  rename(main_PC1_contributors = contributors) %>%
+  left_join(pc1_reliable_tbl, by = "Pop")
 pc1_contrib_str
 
 pc2_contrib_str <- make_contrib_str(pc2_loadings_tbl) %>%
-  rename(main_PC2_contributors = contributors)
+  rename(main_PC2_contributors = contributors) %>%
+  left_join(pc2_reliable_tbl %>% select(Pop, pc2_reliable), by = "Pop")
 pc2_contrib_str
 ```
 
@@ -1167,11 +1201,22 @@ i.e. the additive genetic variance projected onto **β**. Three summaries
 across many random unit vectors are useful:
 
 - **`e_mean`** — average evolvability (mean of e(**β**) over directions).
+- **`e_min`** — evolvability in the *most-constrained* direction (the
+  worst-case selection axis). Approaches λ_min(**G**) as the number of
+  random vectors increases.
+- **`e_max`** — evolvability in the *least-constrained* direction (the
+  best-case selection axis). Approaches λ_max(**G**).
 - **`c_mean`** — conditional evolvability, the variance in **β** that
   remains when all other axes are held fixed. Lower than `e_mean` whenever
   there are genetic constraints.
 - **`a_mean`** — autonomy `c / e`. 1 means no constraint; near 0 means
   every direction is strongly constrained by correlations with other traits.
+
+The ratio **`e_max / e_min`** is a scale-free index of multivariate
+anisotropy in **G** — a value near 1 means G is roughly spherical (no
+preferred direction of evolutionary response); a large ratio means G
+is highly anisotropic and selection responses depend strongly on
+direction.
 
 We compute these per posterior draw using a fixed set of `N_SKEWERS`
 random unit vectors **B**.
@@ -1223,6 +1268,35 @@ evol_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
 evol_tbl
 ```
 
+### 9.1.1 Wide-format summary (manuscript table)
+
+**Table 16b.** Evolvability metrics per population in wide format with
+the anisotropy ratio `e_max / e_min`. Each cell is "posterior mean
+[95% HPD lower, upper]".
+
+```{r evolvability-wide-table}
+fmt_mh <- function(mean, l95, u95)
+  sprintf("%.3f [%.3f, %.3f]", mean, l95, u95)
+
+evol_wide_tbl <- evol_tbl %>%
+  mutate(cell = fmt_mh(mean, l95, u95)) %>%
+  select(Pop, metric, cell, mean) %>%
+  pivot_wider(names_from = metric,
+              values_from = c(cell, mean),
+              names_glue = "{metric}_{.value}") %>%
+  mutate(
+    anisotropy_ratio = round(e_max_mean / e_min_mean, 1)
+  ) %>%
+  select(Pop,
+         e_mean = e_mean_cell,
+         e_min  = e_min_cell,
+         e_max  = e_max_cell,
+         c_mean = c_mean_cell,
+         a_mean = a_mean_cell,
+         anisotropy_ratio)
+evol_wide_tbl
+```
+
 ## 9.2 Figure 7 — three-panel evolvability plot
 
 ```{r evolvability-plot, fig.width=12, fig.height=4}
@@ -1257,10 +1331,21 @@ posterior means; error bars are 95% HPDs. All three metrics are on the
 
 # 10 · Population comparison via Random Skewers
 
-The Random Skewers metric `r_RS` measures how similarly two G matrices
-respond to random selection vectors. We propagate posterior uncertainty by
-drawing one posterior sample from each of the two populations per
+The Random Skewers metric `r_RS` measures how similarly two **G**
+matrices respond to random selection vectors: r_RS = 1 means identical
+response, r_RS = 0 means orthogonal. We propagate posterior uncertainty
+by drawing one posterior sample from each of the two populations per
 comparison (rather than comparing only the posterior means).
+
+**Power note.** With these data the Random Skewers HPDs span roughly
+[0.15, 0.87] for every pairwise comparison (Table 17), so the metric
+cannot distinguish "similar **G**" from "weakly correlated **G**" — both
+are inside every HPD. The point estimates (r_RS ≈ 0.50–0.63) and the
+permutation p-values from `evolqg::RandomSkewers()` (p_mean ≈ 0.10–0.17,
+max ≈ 0.50) provide no statistical evidence that any pair of **G**
+matrices is more or less similar than any other pair. We report the
+metric for completeness but do not draw conclusions about
+**G**-matrix divergence from these comparisons.
 
 **Table 17.** Random Skewers comparison of **G** matrices between all
 pairs of populations. `r_RS_mean` is the posterior mean of the response
@@ -1447,15 +1532,18 @@ $$
 
 computed draw by draw to propagate posterior uncertainty.
 
-**Scale and likelihood caveats.** Two approximations apply:
+**Scale and likelihood notes.**
 
-1. *Scale*: the fitness column entering G is `fec_z` — z-scored raw
-   fecundity — not relative fitness (W / W̄). β_G here is on the scale of
-   "additive genetic SD change in trait z per additive genetic SD change
-   in fecundity", not the strict per-generation response of the breeder's
-   equation. It is comparable across populations (everything is z-scored
-   within population) but should not be plugged into Δz̄ = G β_G without
-   rescaling by W̄.
+1. *Scale (rescaled to the Lande w_rel form).* The animal model fits G
+   on z-scored fecundity (`fec_z`), so the off-diagonal column of G
+   directly yields Cov_A(z, z_fec). Lande's equation Δz̄ = G β requires
+   β = G_zz⁻¹·Cov_A(z, w_rel), where w_rel = W / W̄. Because
+   w_rel = 1 + CV(W) · z_fec (with CV(W) = SD(W) / mean(W) on the raw
+   scale), Cov_A(z, w_rel) = CV(W) · Cov_A(z, z_fec). We therefore
+   multiply each per-draw β_G by CV(fec) per population — a deterministic
+   rescaling, so HPD widths scale proportionally. β_G is now on the
+   relative-fitness scale and directly comparable to the Lande–Arnold
+   β_P.
 
 2. *Gaussian likelihood on count data*: fecundity is a non-negative,
    right-skewed integer. The Gaussian likelihood attenuates V_A(fec) and
@@ -1464,17 +1552,27 @@ computed draw by draw to propagate posterior uncertainty.
    whether this attenuation matters in practice.
 
 **Table 21.** Genetic selection gradients β_G per population and trait,
-from the Robertson–Price identity β_G = **G**_zz⁻¹ Cov_A(z, w) computed
-draw by draw. `beta_G_median` is the posterior median (robust to
-near-singular **G**_zz draws); `beta_G_mean` is reported only for
-diagnostic comparison. `beta_G_l95`/`beta_G_u95` are 95% HPD bounds.
-`n_kept` / `n_dropped` count posterior draws retained vs excluded
-because `rcond(G_zz) < 1e-10` (i.e. **G**_zz was numerically
-near-singular). `sig = TRUE` flags HPDs that exclude zero.
+from the Robertson–Price identity β_G = **G**_zz⁻¹ Cov_A(z, w_rel)
+computed draw by draw and rescaled to the relative-fitness scale by
+multiplying each draw by `cv_fec = SD(fec)/mean(fec)` per population
+(see §11.2). `beta_G_median` is the posterior median (robust to
+heavy-tailed posteriors); `beta_G_mean` is reported only for diagnostic
+comparison. `beta_G_l95`/`beta_G_u95` are 95% HPD bounds.
+`n_kept`/`n_dropped` count posterior draws retained vs excluded because
+**G**_zz was numerically near-singular (`rcond < 1e-10`); in practice
+`n_dropped` is ~0 because the threshold is strict, and the heavy tails
+that matter for the mean/median gap come from finite but
+ill-conditioned draws rather than from singular ones. `sig = TRUE`
+flags HPDs that exclude zero.
 
 ```{r beta-genetic-fn}
 beta_genetic_posterior <- function(G_array, fec_index = 5,
+                                   cv_factor = 1,
                                    rcond_threshold = 1e-10) {
+  # cv_factor: SD(fitness)/mean(fitness) on the raw scale. Converts
+  # G_zz^{-1} Cov_A(z, z_fec) → G_zz^{-1} Cov_A(z, w_rel), since
+  # w_rel = 1 + cv_factor * z_fec implies Cov_A(z, w_rel) = cv_factor *
+  # Cov_A(z, z_fec). Set cv_factor = 1 to retain the z-scale output.
   z_idx <- setdiff(seq_len(NT), fec_index)
   niter <- dim(G_array)[1]
   out   <- matrix(NA_real_, nrow = niter, ncol = length(z_idx),
@@ -1490,7 +1588,7 @@ beta_genetic_posterior <- function(G_array, fec_index = 5,
       next
     }
     out[k, ] <- tryCatch(
-      as.numeric(solve(G_zz, G_zw)),
+      cv_factor * as.numeric(solve(G_zz, G_zw)),
       error = function(e) {
         n_dropped_solve <<- n_dropped_solve + 1L
         rep(NA_real_, length(z_idx))
@@ -1501,16 +1599,21 @@ beta_genetic_posterior <- function(G_array, fec_index = 5,
   attr(out, "n_dropped_rcond") <- n_dropped_rcond
   attr(out, "n_dropped_solve") <- n_dropped_solve
   attr(out, "n_kept")          <- niter - n_dropped_rcond - n_dropped_solve
+  attr(out, "cv_factor")       <- cv_factor
   out
 }
 
 beta_G_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  fec_raw <- pop_data[[pop]]$fp$fec
+  cv_fec  <- sd(fec_raw, na.rm = TRUE) / mean(fec_raw, na.rm = TRUE)
   bG <- beta_genetic_posterior(p$G_array,
-                               fec_index = which(TRAITS == "fec_z"))
+                               fec_index = which(TRAITS == "fec_z"),
+                               cv_factor = cv_fec)
   hpds <- apply(bG, 2, safe_hpd)
   tibble(
     Pop            = pop,
     trait          = colnames(bG),
+    cv_fec         = cv_fec,
     beta_G_median  = apply(bG, 2, median, na.rm = TRUE),
     beta_G_mean    = colMeans(bG, na.rm = TRUE),
     beta_G_l95     = hpds[1, ],
@@ -1523,10 +1626,14 @@ beta_G_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
 beta_G_tbl
 ```
 
-The `n_dropped` column reports posterior draws excluded because **G**_zz was
-near-singular (`rcond(G_zz) < 1e-10`) and `solve()` would have returned an
-explosive value. `beta_G_median` is robust to remaining tail draws; the
-`beta_G_mean` column is retained for diagnostic comparison only.
+`cv_fec` shows the per-population rescaling factor — useful as a sanity
+check, since β_G HPD widths scale linearly with it. `beta_G_median`
+summarises the posterior because its distribution is heavy-tailed even
+when **G**_zz is numerically non-singular: the `rcond(G_zz) < 1e-10`
+guard rarely fires (see `n_dropped` ≈ 0 in practice), but moderately
+ill-conditioned draws give large but finite values that pull the
+posterior mean far from its central mass. The median is robust to these
+tails; `beta_G_mean` is reported only for diagnostic comparison.
 
 ## 11.3 Side-by-side comparison plot
 
@@ -1580,12 +1687,22 @@ CIs (β_P). Filled symbols mark gradients whose interval excludes zero;
 open symbols are non-significant. Y-axis labels include the
 complete-case n per population.
 
-# 12 · Viability selection
+# 12 · Sibship-level associations between focal-plant traits and segment survival
 
-The phenotypic β only sees plants that survived to flowering. Viability —
-the probability of surviving from sowing to flowering — is a separate
-component of total fitness, and we model it directly with a binomial GLM
-on segment-level survival counts.
+The phenotypic β in §11 only sees plants that survived to flowering, so
+it can't measure viability selection on the missing dead plants. Trait
+data are only available on the F-plant (the designated focal sib, or
+the first surviving substitute), so we cannot fit an individual-level
+viability gradient. Instead we fit a segment-level binomial GLM
+relating the F-plant's traits to the fraction of its segment-mates that
+survived. **This is a sibship-level association, not a Lande viability
+gradient**: a positive coefficient means segments whose surviving focal
+sib happened to have a high trait value also had higher overall
+survival, which can arise from family-mean trait differences correlated
+with family-mean survival rather than from individual selection on that
+trait. We report it as a descriptive complement to §11 and discuss the
+distinction in §14.6. Coefficients should not be compared to published
+β_v values from individual-level data.
 
 ## 12.1 Safety: cap survival counts at seeds sown
 
@@ -1606,19 +1723,21 @@ cap_seeds <- function(df, seeds_sown_val, pop_label) {
 }
 ```
 
-## 12.2 Segment-level survival GLM
+## 12.2 Segment-level survival GLM (sibship-level associations)
 
 Quasi-binomial because survival counts are overdispersed (see §12.3).
-The predictor side uses only the four non-fitness traits.
+The predictor side uses only the four non-fitness traits. Coefficients
+are **trait-of-surviving-focal-sib × segment-survival-fraction**
+associations, not individual viability gradients.
 
-**Table 22.** Segment-level viability GLM per population:
-quasi-binomial regression of `cbind(total_surv_to_flower,
-seeds_sown − total_surv_to_flower)` on z-scored corolla, SLA, δ¹³C,
-and msm. Columns from `broom::tidy()` give the coefficient estimate,
-SE, z-statistic, p-value, and 95% CI. Because trait values come from
-the surviving focal sib, this is a sibship-level association rather
-than an individual Lande viability gradient (see §14.6). Quasi-binomial
-family used because of overdispersion documented in Table 23.
+**Table 22.** Segment-level survival GLM per population: quasi-binomial
+regression of `cbind(total_surv_to_flower, seeds_sown −
+total_surv_to_flower)` on z-scored corolla, SLA, δ¹³C, and msm.
+Columns from `broom::tidy()` give the coefficient estimate, SE,
+z-statistic, p-value, and 95% CI. Trait values come from the surviving
+focal sib, so these are sibship-level associations rather than
+individual Lande viability gradients (see §14.6). Quasi-binomial family
+used because of overdispersion documented in Table 23.
 
 ```{r surv-glm}
 surv_summary <- purrr::imap_dfr(pop_data, function(prep, pop) {
@@ -1684,17 +1803,22 @@ most-complete and the most-vulnerable populations).
 
 ## 13.1 log1p(fec) sensitivity for β_G — likelihood specification
 
-Refit AC with `log1p(fec)` z-scored as the fecundity column. If β_G is
-stable across the two specifications the Gaussian-on-raw-counts
-approximation is defensible; if it shifts materially, prefer the log1p
-specification (or move to a Poisson family in MCMCglmm).
+Refit AC with `log1p(fec)` z-scored as the fecundity column. Each
+spec's β_G is rescaled to its own relative-fitness scale (CV of fec for
+the raw spec, CV of log1p(fec) for the log spec) so both rows are
+directly comparable as Lande gradients. If β_G is stable across the
+two specs the Gaussian-on-raw-counts approximation is defensible; if it
+shifts materially, prefer the log1p specification (or move to a Poisson
+family in MCMCglmm).
 
 **Table 24.** β_G sensitivity to fecundity likelihood specification at
-AC. Two rows per non-fitness trait: the main analysis (`spec = "raw fec
-(main)"`, with `fec_z` from raw counts) vs. a refit with `fec_z` from
-`log1p(fec)` (`spec = "log1p(fec) sensitivity"`). Stable β_G across
-specs supports the Gaussian-on-raw-counts approximation; large shifts
-would argue for a log or Poisson likelihood.
+AC, both rows on the Lande relative-fitness scale. The main analysis
+(`spec = "raw fec (main)"`) uses `fec_z` from raw counts rescaled by
+CV(fec); the refit (`spec = "log1p(fec) sensitivity"`) uses `fec_z`
+from `log1p(fec)` rescaled by CV(log1p(fec)). Posterior medians
+reported. Stable β_G across specs supports the Gaussian-on-raw-counts
+approximation; large shifts would argue for a log or Poisson
+likelihood.
 
 ```{r beta-genetic-fec-sensitivity}
 prep_AC_logfec <- pop_data$AC
@@ -1704,18 +1828,24 @@ prep_AC_logfec$fp <- prep_AC_logfec$fp %>%
 fits_logfec_AC <- cache_fit("fits_logfec_AC",
   fit_animal_model(prep_AC_logfec, peds_list$AC, prior_type = "px"))
 post_logfec_AC <- extract_pop(fits_logfec_AC)
-bG_logfec_AC   <- beta_genetic_posterior(post_logfec_AC$G_array,
-                                         fec_index = which(TRAITS == "fec_z"))
+
+cv_log_AC <- with(prep_AC_logfec$fp,
+                  sd(log1p(fec), na.rm = TRUE) /
+                  mean(log1p(fec), na.rm = TRUE))
+
+bG_logfec_AC <- beta_genetic_posterior(post_logfec_AC$G_array,
+                                       fec_index = which(TRAITS == "fec_z"),
+                                       cv_factor = cv_log_AC)
 hpd_logfec <- apply(bG_logfec_AC, 2, safe_hpd)
 
 beta_G_fec_compare <- bind_rows(
   beta_G_tbl %>%
     filter(Pop == "AC") %>%
     transmute(trait,
-              beta_G = beta_G_mean, l95 = beta_G_l95, u95 = beta_G_u95,
+              beta_G = beta_G_median, l95 = beta_G_l95, u95 = beta_G_u95,
               spec   = "raw fec (main)"),
   tibble(trait  = colnames(bG_logfec_AC),
-         beta_G = colMeans(bG_logfec_AC, na.rm = TRUE),
+         beta_G = apply(bG_logfec_AC, 2, median, na.rm = TRUE),
          l95    = hpd_logfec[1, ], u95 = hpd_logfec[2, ],
          spec   = "log1p(fec) sensitivity")
 )
@@ -1983,19 +2113,27 @@ meaning the data cannot distinguish strong positive from strong negative
 correlations. Comparisons of **G** structure across populations (Random
 Skewers, eigenanalysis, β_G) operate on this floor of resolution.
 
-## 14.2 Variance components are prior-sensitive for low-data populations
+## 14.2 Variance components are prior-sensitive in posterior mean
 
-The PX/IW comparison in §13.3 shows V_A and V_M shift 3- to 8-fold between
-priors at BB and for several AC traits, with non-overlapping HPDs (Table
-13_sensitivity_prior_wide). At BB, every V_A and most V_M components are
-prior-driven; at AC, SLA and fecundity components are prior-driven; HR
-δ¹³C and HR mean seed mass are stable across priors and so is AC δ¹³C.
-Heritabilities inherit this dependence: we treat *h*² > 0 as a credible
-finding only where the lower HPD bound is meaningfully above zero under
-*both* priors. By that standard the data-driven heritabilities are HR
-δ¹³C, HR mean seed mass, and AC δ¹³C. All other reported heritabilities
-should be read as posterior summaries under the PX prior rather than
-data-driven point estimates.
+The PX/IW comparison in §13.3 (Table 13_sensitivity_prior_wide) shows
+two kinds of prior sensitivity. **Strict HPD non-overlap** is the
+narrow case — fewer rows than the manuscript narrative might suggest:
+only Va_fec_z at BB (1 of 5 V_A entries), Vm_corolla_z and Vm_fec_z at
+BB (2 of 5 V_M entries), Va_SLA_z at AC (1 of 5), and Vm_SLA_z,
+Vm_corolla_z, Vm_fec_z at AC (3 of 5). **Posterior-mean shifts**
+between priors are more pervasive: IW(V = I, ν = NT = 5) is improper at
+this dimension (its mean does not exist for ν ≤ NT + 1) and pulls
+posterior means toward V = I, so IW means are systematically larger
+than PX means even where their wide HPDs overlap — at BB, V_A means
+shift 2–7× between priors for every trait. We adopt PX as the main
+analysis because it is the appropriate weakly-informative prior for
+variance components with few random-effect levels (Gelman 2006) and
+because IW(V = I, ν = NT) is improper here. **Defensible claim**:
+δ¹³C V_A at HR and AC, and mean seed mass V_A at HR, have lower HPDs
+clearly above zero under both priors and posterior-mean shifts < 2×.
+All other reported V_A and V_M values should be read as posterior
+summaries under the PX prior rather than data-driven point estimates.
+We avoid claims about heritability magnitude per §14.8.
 
 ## 14.3 Genetic selection gradients β_G are precision-limited
 
@@ -2050,13 +2188,20 @@ measured pre-mortality); it should be reported accordingly.
   earlier version of the model used a near-improper inverse-Gamma-like
   prior (`nu = 0.002`) on the block component, which produced R̂ > 1.2 for
   five HR block parameters. The current PX prior on `idh(trait):block`
-  (and on `idh(trait):transect_f`) — `nu = NT`, `alpha.V = 1000·I` — fixes
-  that mixing pathology without committing to a high or low V_block
-  (Gelman 2006). The fundamental identifiability issue remains: V_block
-  cannot be precisely estimated from three random levels regardless of
-  prior. Block remains in the model as a necessary nuisance term so that
-  V_block is not absorbed into V_A or V_R, but V_block itself is not
-  reported as a target quantity.
+  (and on `idh(trait):transect_f`) — `nu = NT`, `alpha.V = 1000·I` —
+  **substantially reduces but does not eliminate** the mixing
+  pathology: per Table 05_convergence_rhat_above_1_1, 15 parameters
+  across the four populations still have R̂ > 1.1 and 9 have R̂ > 1.2,
+  almost all of them block-related. The PX prior follows Gelman (2006)
+  for variance components with few random-effect levels and is the
+  appropriate weakly-informative choice, but the fundamental
+  identifiability issue remains: V_block cannot be precisely estimated
+  from three random levels regardless of prior. Block remains in the
+  model as a necessary nuisance term so that V_block is not absorbed
+  into V_A or V_R, but V_block itself is not reported as a target
+  quantity and the elevated R̂ values for block parameters should not be
+  taken as evidence against the V_A and *r*_A estimates the block
+  effect protects.
 
 - **BB depends heavily on multivariate-normal imputation.** SLA, msm, and
   δ¹³C are 49–75% missing at BB. The trait-drop sensitivity in §13.2
@@ -2069,13 +2214,25 @@ measured pre-mortality); it should be reported accordingly.
 
 Taking the constraints above together:
 
-1. **Heritable variation in δ¹³C and mean seed mass at HR**; **δ¹³C at
-   AC**. These are the heritabilities whose lower HPDs are appreciably
-   above zero under both PX and IW priors.
+1. **Appreciable additive genetic variance (V_A) in δ¹³C and mean seed
+   mass at HR, and δ¹³C at AC.** Posterior means and lower HPD bounds:
+   HR δ¹³C V_A = 0.45 [0.24, 0.68]; HR mean seed mass V_A = 0.32 [0.07,
+   0.57]; AC δ¹³C V_A = 0.42 [0.12, 0.72]. These three are the V_A
+   estimates whose lower HPDs sit clearly above zero under the PX prior
+   and whose posterior means change less than 2× between PX and IW. We
+   report these as **V_A** rather than as heritabilities because
+   per-draw *h*² = V_A / (V_A + V_M + V_block + V_transect + V_R) has a
+   highly variable denominator under the wide PX prior on every
+   variance component, so *h*² lower HPDs touch zero even when V_A is
+   well-resolved (Table 06_h2_narrow_sense versus Table
+   06_Va_diagonals). Posterior-mean *h*² for these three is 0.25–0.28,
+   but lower HPD bounds are essentially zero; the defensible biological
+   claim is the presence of heritable variation, not a specific *h*²
+   magnitude.
 
 2. **A credible additive genetic correlation between δ¹³C and mean seed
-   mass at HR** (*r*_A = 0.58, HPD excludes 0; only such correlation in
-   the dataset).
+   mass at HR** (*r*_A = 0.58, HPD [0.27, 0.88]; the only one of 40
+   pairwise *r*_A entries whose HPD excludes zero).
 
 3. **Phenotypic selection patterns at AC and HR** favouring more negative
    δ¹³C and lower mean seed mass. β_P at AC has n = 185 and significant
@@ -2086,7 +2243,8 @@ Taking the constraints above together:
    structure inferences and should be reported as such.
 
 5. **No credible evidence** for or against alignment of β_P with β_G in
-   any population — the β_G intervals are too wide.
+   any population — even after rescaling β_G to the relative-fitness
+   scale (§11.2), the intervals are too wide to test alignment.
 
 These are the claims the data currently support. The Rmd documents
 everything else (full **G** matrices, eigenanalyses, evolvability metrics,
@@ -2135,7 +2293,8 @@ save_tbl(pc1_contrib_str,  "08_pc1_contributors")
 save_tbl(pc2_contrib_str,  "08_pc2_contributors")
 
 # Section 9 — evolvability
-save_tbl(evol_tbl, "09_evolvability_metrics")
+save_tbl(evol_tbl,      "09_evolvability_metrics")
+save_tbl(evol_wide_tbl, "09_evolvability_metrics_wide")
 
 # Section 10 — Random Skewers
 save_tbl(rs_tbl, "10_random_skewers")
