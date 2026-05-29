@@ -335,7 +335,7 @@ How many sown plants, F-plants, sires, dams, and blocks per population?
 This table grounds every effective-sample-size discussion downstream — if
 ESS looks low, look here first.
 
-**Table 1.** Sample sizes per population. Columns report total sown
+**Table S3.** Sample sizes per population. Columns report total sown
 plants, survivors to flowering, F-plants entering the animal model,
 number of unique sires (donors), dams (recipients), blocks, and
 transects, per-trait observation counts, and the number of complete
@@ -376,7 +376,7 @@ and its derived quantities. Note especially BB (SLA ~69%, msm ~75%) and
 BO (SLA ~49%, msm ~66%) — the BB section below has a dedicated trait-drop
 sensitivity check.
 
-**Table 2.** Per-trait missingness by population. `pct_missing` is the
+**Table S3b.** Per-trait missingness by population. `pct_missing` is the
 fraction of F-plants with no measurement for that trait. MCMCglmm
 imputes these values under the joint multivariate Gaussian likelihood;
 high-missingness traits (BB SLA 69%, BB msm 75%, BO msm 66%) therefore
@@ -402,7 +402,7 @@ missingness_tbl
 Before standardising, glance at the raw-scale means. These mirror Figure 4
 and Table S3 of the manuscript.
 
-**Table 3.** Raw (un-standardised) trait means ± SE per population, with
+**Table S4.** Raw (un-standardised) trait means ± SE per population, with
 per-trait sample size. Units: corolla diameter (mm), SLA (mm²/mg), δ¹³C
 (‰), mean seed mass (mg), fecundity (filled seeds per plant).
 
@@ -505,7 +505,7 @@ ggplot(plot_dat, aes(Pop, mean, fill = Pop)) +
         strip.text = element_text(size = 9))
 ```
 
-**Figure 1.** Raw-scale trait means ± SE per population, one panel per
+**Figure 4.** Raw-scale trait means ± SE per population, one panel per
 trait. Letters above each bar are compact-letter-display annotations from
 trait-wise one-way ANOVAs (`aov(trait ~ Pop)`) followed by Tukey HSD
 pairwise comparisons at α = 0.05; populations sharing a letter within a
@@ -675,7 +675,7 @@ R̂ > 1.1 is the conventional concern threshold; > 1.2 is bad mixing. With
 `TEST_RUN = TRUE`, expect some R̂ above threshold simply because the chains
 are short.
 
-**Table 4.** Gelman–Rubin convergence diagnostic (R̂) across all Sol +
+**Table S_conv1.** Gelman–Rubin convergence diagnostic (R̂) across all Sol +
 VCV parameters per population. `conv_health` summarises the count of
 parameters with R̂ > 1.1 and > 1.2; the second printed table lists any
 parameter with R̂ > 1.1. Under `TEST_RUN = FALSE` the target is all
@@ -714,7 +714,7 @@ ESS < 100 means the chain is essentially uninformative for that parameter;
 < 400 is borderline. With `TEST_RUN = FALSE`, the target is ≥ 1000 for V_A
 diagonals and the leading r_A entries.
 
-**Table 5.** Effective sample size (ESS) per parameter, summarised
+**Table S_conv2.** Effective sample size (ESS) per parameter, summarised
 per population. `ess_health` reports the minimum ESS and the count of
 parameters with ESS < 100 (uninformative) or < 400 (borderline). The
 second printed table lists the 20 lowest-ESS parameters.
@@ -865,7 +865,7 @@ post_main <- purrr::map(fits_main, extract_pop)
 
 ## 6.5 V_A diagonals
 
-**Table 6.** Additive genetic variance (V_A) diagonals of **G** per
+**Table S5.** Additive genetic variance (V_A) diagonals of **G** per
 population and trait. `Va_mean` is the posterior mean, `Va_l95` /
 `Va_u95` are the 95% HPD bounds. Traits are on the z-scored within-
 population scale, so V_A is dimensionless and comparable across traits
@@ -894,7 +894,7 @@ previous table: if V_M is large for a trait, the original analysis
 that maternal/dam variance into V_A. A large V_M does not, on its own,
 imply heritable maternal effects.
 
-**Table 7.** Maternal/dam variance (V_M) diagonals per population and
+**Table S6.** Maternal/dam variance (V_M) diagonals per population and
 trait, with 95% HPD intervals. Compare against V_A in Table 6 — large
 V_M flags traits where the previous (no-dam) animal model would have
 absorbed maternal variance into V_A.
@@ -913,7 +913,7 @@ Vm_tbl
 
 ## 6.7 Narrow-sense heritability
 
-**Table 8.** Narrow-sense heritability (*h*² = V_A / (V_A + V_M +
+**Table S7.** Narrow-sense heritability (*h*² = V_A / (V_A + V_M +
 V_block + V_transect + V_R)) per population and trait, computed per
 posterior draw. `h2_mean` is the posterior mean; `h2_l95` / `h2_u95`
 are the 95% HPD bounds.
@@ -938,7 +938,7 @@ population; the `sig` flag marks pairs whose 95% HPD excludes zero.
 
 ## 7.1 Pairwise r_A table
 
-**Table 9.** Pairwise additive genetic correlations (r_A) per
+**Table S8.** Pairwise additive genetic correlations (r_A) per
 population. One row per upper-triangle trait pair. `rA_mean` is the
 posterior mean of the per-draw correlation; `rA_l95` / `rA_u95` give
 the 95% HPD interval; `sig = TRUE` flags pairs whose HPD excludes 0.
@@ -965,7 +965,7 @@ rA_pairs_tbl
 Same data, formatted as `"mean [l95, u95]"` with **bold** for HPDs that
 exclude zero (matches the original Rmd table style):
 
-**Table 10.** Pairwise r_A in wide trait-by-trait format. Each cell
+**Table S8b.** Pairwise r_A in wide trait-by-trait format. Each cell
 shows `"mean [l95, u95]"`; **bold** entries are correlations whose 95%
 HPD excludes zero. Matches the manuscript table layout.
 
@@ -1023,7 +1023,7 @@ ggplot(rA_long, aes(trait1, trait2, fill = rA)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-**Figure 2.** Pairwise additive genetic correlation (r_A) heatmaps, one
+**Figure 5.** Pairwise additive genetic correlation (r_A) heatmaps, one
 panel per population. Cell colour encodes the posterior mean of r_A
 (blue = negative, red = positive). Cells whose 95% HPD excludes zero
 are bordered in black and shown at full saturation with bold labels;
@@ -1078,7 +1078,7 @@ eig_results <- purrr::map(post_main, ~ eigen_per_draw(.x$G_array))
 Per population: trace(G), λ₁ … λ₅, and the proportion of variance on PC1
 and PC2.
 
-**Table 11.** Eigenvalue summary of **G** per population: posterior
+**Table S9.** Eigenvalue summary of **G** per population: posterior
 mean of trace(**G**) (total genetic variance), eigenvalues λ₁–λ₅ with
 95% HPD intervals (λ₁–λ₃ shown with HPDs; λ₄, λ₅ as means only), and
 the proportion of variance on PC1 and PC2 with HPDs. Per-draw
@@ -1120,7 +1120,7 @@ loadings then pull toward the reference and understate uncertainty. This
 chunk flags any population where λ₂ and λ₃ HPDs overlap so PC2 results
 can be suppressed or caveated in the manuscript.
 
-**Table 12.** PC2 reliability check per population. `pc2_reliable` is
+**Table S9b.** PC2 reliability check per population. `pc2_reliable` is
 TRUE if the 95% HPD for λ₂ does not overlap the HPD for λ₃; when FALSE,
 PC2 eigenvectors are not stably identified across draws and the
 averaged PC2 loadings should not be interpreted.
@@ -1141,7 +1141,7 @@ pc2_reliable_tbl
 
 ## 8.4 PC1 trait loadings
 
-**Table 13.** PC1 trait loadings per population, with 95% HPD bounds
+**Table S10.** PC1 trait loadings per population, with 95% HPD bounds
 from per-draw sign-aligned eigenvectors. `main_contributor` flags
 traits with |loading| > 0.2.
 
@@ -1163,7 +1163,7 @@ pc1_loadings_tbl
 
 ## 8.5 PC2 trait loadings (caveated for unreliable populations)
 
-**Table 14.** PC2 trait loadings per population, with HPD bounds and
+**Table S_PC2.** PC2 trait loadings per population, with HPD bounds and
 the `pc2_reliable` flag from Table 12. Loadings for populations with
 `pc2_reliable = FALSE` are reported but should not be interpreted —
 λ₂/λ₃ overlap means PC2 eigenvectors are not stably identified across
@@ -1208,7 +1208,7 @@ contributions. Only HR PC1 (d13C and msm both with HPDs excluding 0)
 is loading-reliable. PC2 reliability is also flagged via the λ₂/λ₃
 overlap criterion from Table 12 (unreliable at all four populations).
 
-**Table 15.** Compact string summary of PC1 (`pc1_contrib_str`) and
+**Table S10b.** Compact string summary of PC1 (`pc1_contrib_str`) and
 PC2 (`pc2_contrib_str`) main contributors per population, in the
 manuscript table format. A trait is listed if |loading| > 0.2 with the
 sign of its mean loading. The `pc1_reliable` / `pc2_reliable` columns
@@ -1287,7 +1287,7 @@ random unit vectors **B**.
 
 ## 9.1 Per-draw computation
 
-**Table 16.** Evolvability metrics per population in long format.
+**Table S11.** Evolvability metrics per population in long format.
 `e_mean` = average evolvability β'**G**β over `N_SKEWERS` random unit
 vectors; `c_mean` = conditional evolvability (1 / β'**G**⁻¹β); `a_mean`
 = autonomy c/e (1 = no constraint, 0 = fully constrained); `e_min`,
@@ -1334,7 +1334,7 @@ evol_tbl
 
 ### 9.1.1 Wide-format summary (manuscript table)
 
-**Table 16b.** Evolvability metrics per population in wide format with
+**Table S11b.** Evolvability metrics per population in wide format with
 the anisotropy ratio `e_max / e_min`. Each cell is "posterior mean
 [95% HPD lower, upper]".
 
@@ -1387,7 +1387,7 @@ ggplot(evol_wide, aes(Pop, mean)) +
   theme_classic(base_size = 13)
 ```
 
-**Figure 3.** Evolvability metrics by population. (A) Mean evolvability
+**Figure 6.** Evolvability metrics by population. (A) Mean evolvability
 e(β) = β'**G**β averaged over random unit vectors. (B) Conditional
 evolvability c(β) = 1 / β'**G**⁻¹β. (C) Autonomy a = c/e. Points are
 posterior means; error bars are 95% HPDs. All three metrics are on the
@@ -1411,7 +1411,7 @@ matrices is more or less similar than any other pair. We report the
 metric for completeness but do not draw conclusions about
 **G**-matrix divergence from these comparisons.
 
-**Table 17.** Random Skewers comparison of **G** matrices between all
+**Table S12.** Random Skewers comparison of **G** matrices between all
 pairs of populations. `r_RS_mean` is the posterior mean of the response
 correlation across `N_POST_DRAWS_FOR_SKEWERS` paired posterior draws,
 each evaluated against `N_SKEWERS` random unit vectors. `r_RS_l95` /
@@ -1520,7 +1520,7 @@ beta_pheno <- function(prep, total_fitness = FALSE) {
 
 ### 11.1.1 Fecundity-only β_P (the classic Lande–Arnold)
 
-**Table 18.** Phenotypic selection gradients β_P (fecundity-only
+**Table S13.** Phenotypic selection gradients β_P (fecundity-only
 relative fitness) per population and trait, from OLS regression of
 `w_rel = fec / mean(fec)` on z-scored corolla, SLA, δ¹³C, and msm
 across complete-case rows. `std.error`, `statistic`, `p.value`, and
@@ -1543,7 +1543,7 @@ fec-only and survival × fec regression samples are nearly identical. The
 total-fitness column matters more in datasets where some non-survivors
 were measured pre-mortality.
 
-**Table 19.** Phenotypic selection gradients β_P using total fitness
+**Table S13b.** Phenotypic selection gradients β_P using total fitness
 (survival × fecundity, with non-survivors = 0) as the fitness
 denominator. `beta_P_all` combines this table with Table 19 for direct
 side-by-side comparison with Table 18. In this dataset the fec-only
@@ -1564,7 +1564,7 @@ beta_P_all
 R², F (HC3), p (HC3), n, and max VIF for the fecundity-only regressions.
 This is what the manuscript text "R² ≈ 0.10, all VIF < 1.1" comes from.
 
-**Table 20.** Lande–Arnold β_P fit summary per population for the
+**Table S14.** Lande–Arnold β_P fit summary per population for the
 fecundity-only regression: R² and adjusted R², HC3-based global F and
 its p-value, residual degrees of freedom, complete-case n, and the
 maximum VIF across the four trait predictors.
@@ -1615,7 +1615,7 @@ computed draw by draw to propagate posterior uncertainty.
    and β_G with it. The `log1p(fec)` sensitivity check in §13.1 gauges
    whether this attenuation matters in practice.
 
-**Table 21.** Genetic selection gradients β_G per population and trait,
+**Table S15.** Genetic selection gradients β_G per population and trait,
 from the Robertson–Price identity β_G = **G**_zz⁻¹ Cov_A(z, w_rel)
 computed draw by draw and rescaled to the relative-fitness scale by
 multiplying each draw by `cv_fec = SD(fec)/mean(fec)` per population
@@ -1743,7 +1743,7 @@ ggplot(plot_dat, aes(mean, pop_label, colour = type, shape = sig)) +
   theme(legend.position = "bottom")
 ```
 
-**Figure 4.** Side-by-side comparison of phenotypic (β_P) and genetic
+**Figure 7.** Side-by-side comparison of phenotypic (β_P) and genetic
 (β_G) selection gradients on z-scored traits, one panel per non-fitness
 trait (corolla, SLA, δ¹³C, msm). Points are posterior medians (β_G) or
 OLS estimates (β_P); error bars are 95% HPD intervals (β_G) or HC3 95%
@@ -1794,7 +1794,7 @@ The predictor side uses only the four non-fitness traits. Coefficients
 are **trait-of-surviving-focal-sib × segment-survival-fraction**
 associations, not individual viability gradients.
 
-**Table 22.** Segment-level survival GLM per population: quasi-binomial
+**Table S16.** Segment-level survival GLM per population: quasi-binomial
 regression of `cbind(total_surv_to_flower, seeds_sown −
 total_surv_to_flower)` on z-scored corolla, SLA, δ¹³C, and msm.
 Columns from `broom::tidy()` give the coefficient estimate, SE,
@@ -1828,7 +1828,7 @@ Pearson-residual dispersion (Σ rᵖ² / df) — values >> 1 justify the
 quasi-binomial choice. The original analysis used quasi-binomial for BO
 and HR for precisely this reason.
 
-**Table 23.** Survival GLM overdispersion diagnostic per population:
+**Table S16b.** Survival GLM overdispersion diagnostic per population:
 the Pearson-residual dispersion statistic Σ rᵖ² / df. Values
 substantially > 1 indicate binomial overdispersion and justify the
 quasi-binomial family used in Table 22.
@@ -1875,7 +1875,7 @@ two specs the Gaussian-on-raw-counts approximation is defensible; if it
 shifts materially, prefer the log1p specification (or move to a Poisson
 family in MCMCglmm).
 
-**Table 24.** β_G sensitivity to fecundity likelihood specification at
+**Table S17.** β_G sensitivity to fecundity likelihood specification at
 AC, both rows on the Lande relative-fitness scale. The main analysis
 (`spec = "raw fec (main)"`) uses `fec_z` from raw counts rescaled by
 CV(fec); the refit (`spec = "log1p(fec) sensitivity"`) uses `fec_z`
@@ -2016,7 +2016,7 @@ rA_BB_no_msm <- extract_rA_subset(fits_BB_no_msm, traits_no_msm)
 well-conditioned five-trait fit should show `max_abs_delta < 0.1`,
 `n_HPD_nonoverlap = 0`, and no sign changes.
 
-**Table 25.** BB trait-drop sensitivity for genetic correlations.
+**Table S18.** BB trait-drop sensitivity for genetic correlations.
 `rA_BB_sensitivity` (first printed table) gives per-pair r_A under the
 main five-trait fit vs. the drop-SLA and drop-msm refits, with HPD
 bounds and `delta = rA_sub − rA_main`. `rA_BB_sens_summary` (second
@@ -2113,7 +2113,7 @@ extract_prior_sensitivity <- function(fits) {
 
 ### 13.3.2 Long-format comparison
 
-**Table 26.** Prior sensitivity (long format) comparing the
+**Table S19.** Prior sensitivity (long format) comparing the
 parameter-expanded (PX, main) and inverse-Wishart (IW, V = I, ν = NT)
 priors at AC and BB. One row per quantity: 10 r_A entries, 5 V_A
 diagonals, and 5 V_M diagonals per population × prior combination.
@@ -2137,7 +2137,7 @@ prior_compare
 
 ### 13.3.3 Wide format with `delta_mean` and HPD-overlap flag
 
-**Table 27.** Prior sensitivity (wide format) pivoted so each row
+**Table S19b.** Prior sensitivity (wide format) pivoted so each row
 gives one quantity with PX and IW posterior means and HPDs side by
 side, the difference `delta_mean = IW − PX`, and `hpd_overlap` (TRUE
 when the two priors' 95% HPDs overlap; FALSE flags prior-sensitive
