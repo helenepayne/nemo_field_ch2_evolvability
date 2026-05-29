@@ -74,6 +74,8 @@ suppressPackageStartupMessages({
   library(car)        # vif()
   library(sandwich)   # HC3 robust variance
   library(lmtest)     # coeftest / waldtest with vcov.
+  library(multcompView) # compact letter displays from Tukey HSD
+  library(ggh4x)        # per-facet scale overrides (δ¹³C y-axis inversion)
 })
 
 suppressPackageStartupMessages(library(conflicted))
@@ -436,13 +438,67 @@ trait_lbl <- c(corolla_diam_mm   = "corolla diameter (mm)",
                mean_seed_mass_mg = "mean seed mass (mg)",
                fecundity         = "fecundity (filled seeds)")
 
-trait_means_tbl %>%
+# One-way ANOVA + Tukey HSD per trait on raw values, with compact letter
+# display. Two populations sharing a letter do not differ at α = 0.05.
+trait_raw_long <- purrr::imap_dfr(pop_data, function(d, pop) {
+  fp <- d$fp
+  tibble(Pop = pop,
+         corolla_diam_mm   = fp$corolla,
+         SLA               = fp$SLA,
+         d13C              = fp$d13C,
+         mean_seed_mass_mg = fp$msm,
+         fecundity         = fp$fec)
+}) %>%
+  tidyr::pivot_longer(-Pop, names_to = "trait", values_to = "value") %>%
+  filter(!is.na(value))
+
+trait_letters <- trait_raw_long %>%
+  group_by(trait) %>%
+  group_modify(~ {
+    mod   <- aov(value ~ Pop, data = .x)
+    pvals <- TukeyHSD(mod)$Pop[, "p adj"]
+    lets  <- multcompView::multcompLetters(pvals)$Letters
+    # Order letters by population mean (ascending) so "a" is the lowest mean.
+    pop_means <- .x %>% group_by(Pop) %>%
+      summarise(m = mean(value, na.rm = TRUE), .groups = "drop") %>%
+      arrange(m)
+    lets_ordered <- lets[pop_means$Pop]
+    unique_lets  <- unique(unlist(strsplit(paste(lets_ordered, collapse = ""), "")))
+    relabel      <- setNames(letters[seq_along(unique_lets)], unique_lets)
+    tibble(Pop = names(lets_ordered),
+           letter = vapply(lets_ordered, function(s) {
+             paste(relabel[strsplit(s, "")[[1]]], collapse = "")
+           }, character(1)))
+  }) %>%
+  ungroup()
+
+plot_dat <- trait_means_tbl %>%
+  left_join(trait_letters, by = c("Pop", "trait")) %>%
+  group_by(trait) %>%
+  mutate(
+    panel_pad = 0.08 * (max(mean + se, na.rm = TRUE) -
+                        min(mean - se, na.rm = TRUE)),
+    # For δ¹³C the y-axis is reversed, so "above the bar" visually means
+    # below in data-coordinates (i.e. *more negative*). Push letters down
+    # past mean − se in that panel.
+    letter_y  = if (trait[1] == "d13C") mean - se - panel_pad
+                else                    mean + se + panel_pad
+  ) %>%
+  ungroup() %>%
   mutate(trait = factor(recode(trait, !!!trait_lbl),
-                        levels = unname(trait_lbl))) %>%
-  ggplot(aes(Pop, mean, fill = Pop)) +
+                        levels = unname(trait_lbl)))
+
+ggplot(plot_dat, aes(Pop, mean, fill = Pop)) +
   geom_col() +
   geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.25) +
+  geom_text(aes(y = letter_y, label = letter),
+            size = 3.5, vjust = 0, fontface = "bold") +
   facet_wrap(~ trait, scales = "free_y", nrow = 1) +
+  # Positional list: one entry per facet in the order set by
+  # `levels = unname(trait_lbl)` — corolla, SLA, δ¹³C, msm, fec.
+  ggh4x::facetted_pos_scales(
+    y = list(NULL, NULL, scale_y_reverse(), NULL, NULL)
+  ) +
   labs(x = NULL, y = "Mean ± SE") +
   theme_classic(base_size = 11) +
   theme(legend.position = "none",
@@ -450,8 +506,16 @@ trait_means_tbl %>%
 ```
 
 **Figure 1.** Raw-scale trait means ± SE per population, one panel per
-trait. Y-axes are panel-specific (free scales). Mirrors Figure 4 / Table
-S3 of the manuscript.
+trait. Letters above each bar are compact-letter-display annotations from
+trait-wise one-way ANOVAs (`aov(trait ~ Pop)`) followed by Tukey HSD
+pairwise comparisons at α = 0.05; populations sharing a letter within a
+panel do not differ significantly. Letters are ordered by ascending
+population mean within each trait, **except for the δ¹³C panel**, whose
+y-axis is reversed so that more-negative values (lower carbon-isotope
+discrimination, higher water-use efficiency) appear at the top; the
+letter `a` in that panel therefore corresponds to AC (the most-negative
+δ¹³C population). Y-axes are panel-specific (free scales). Mirrors Figure
+4 / Table S3 of the manuscript.
 
 # 4 · The animal model
 
