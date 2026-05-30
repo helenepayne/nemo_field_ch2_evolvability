@@ -1393,6 +1393,75 @@ evolvability c(β) = 1 / β'**G**⁻¹β. (C) Autonomy a = c/e. Points are
 posterior means; error bars are 95% HPDs. All three metrics are on the
 [0, 1] range under z-scored traits.
 
+## 9.3 Mean-scaled evolvability for literature comparison
+
+The evolvability metrics above are in z-scored units (V_A on a
+within-population standardised scale), because the animal model was
+fitted on z-scored traits to support multivariate selection-gradient
+analyses (Lande–Arnold β_P and Robertson–Price β_G). Most published
+evolvability values, however, use the Hansen–Houle mean-scaled
+formulation e = V_A / mean², expressed as percent change per generation
+under unit selection (Hansen et al. 2003, Hansen & Houle 2008, Hansen,
+Pélabon & Houle 2011, Opedal 2019).
+
+For traits with positive means and a meaningful zero, the two scales
+are related by e_mean-scaled = V_A_z × CV², where CV = SD(raw) /
+mean(raw) of the raw trait per population. We compute this conversion
+for the four positive-mean traits (corolla, SLA, mean seed mass,
+fecundity) and report the result in Table S16 alongside V_A on its
+native z-scale. δ¹³C is excluded because its mean is negative; the
+Hansen–Houle metric is undefined in that case.
+
+```{r e-meanscaled-table}
+cv_per_trait_pop <- purrr::imap_dfr(pop_data, function(d, pop) {
+  fp <- d$fp
+  tibble(
+    Pop       = pop,
+    trait_z   = c("corolla_z", "SLA_z", "msm_z", "fec_z"),
+    trait_raw = c("corolla",   "SLA",   "msm",   "fec"),
+    mean_raw  = c(mean(fp$corolla, na.rm = TRUE),
+                  mean(fp$SLA,     na.rm = TRUE),
+                  mean(fp$msm,     na.rm = TRUE),
+                  mean(fp$fec,     na.rm = TRUE)),
+    sd_raw    = c(sd(fp$corolla, na.rm = TRUE),
+                  sd(fp$SLA,     na.rm = TRUE),
+                  sd(fp$msm,     na.rm = TRUE),
+                  sd(fp$fec,     na.rm = TRUE))
+  ) %>% mutate(CV_raw = sd_raw / mean_raw)
+})
+
+e_meanscaled_tbl <- Va_tbl %>%
+  rename(trait_z = trait) %>%
+  inner_join(cv_per_trait_pop, by = c("Pop", "trait_z")) %>%
+  mutate(
+    CV2               = CV_raw^2,
+    e_meanscaled_mean = Va_mean * CV2,
+    e_meanscaled_l95  = Va_l95  * CV2,
+    e_meanscaled_u95  = Va_u95  * CV2,
+    # Hansen-Houle convention: report as percent
+    e_pct_mean = 100 * e_meanscaled_mean,
+    e_pct_l95  = 100 * e_meanscaled_l95,
+    e_pct_u95  = 100 * e_meanscaled_u95
+  ) %>%
+  select(Pop, trait = trait_raw,
+         mean_raw, CV_raw,
+         Va_z_mean = Va_mean,
+         e_meanscaled_mean, e_meanscaled_l95, e_meanscaled_u95,
+         e_pct_mean, e_pct_l95, e_pct_u95)
+e_meanscaled_tbl
+```
+
+**Table S16.** Mean-scaled evolvability per trait and population for
+literature comparison. `mean_raw` and `CV_raw = SD/mean` are computed on
+raw (un-z-scored) trait values for F-plants in each population.
+`Va_z_mean` is the posterior mean of V_A on the z-scale (from Table S5);
+`e_meanscaled_*` is V_A rescaled to mean-scaled units via V_A × CV²;
+`e_pct_*` is the same in percent (the Hansen–Houle convention). The 95%
+HPD bounds inherit deterministic rescaling (CV is a sample statistic, so
+HPD widths scale linearly with CV²). δ¹³C is omitted because its mean is
+negative; mean-scaled evolvability is undefined for traits without a
+meaningful zero.
+
 # 10 · Population comparison via Random Skewers
 
 The Random Skewers metric `r_RS` measures how similarly two **G**
@@ -1794,7 +1863,7 @@ The predictor side uses only the four non-fitness traits. Coefficients
 are **trait-of-surviving-focal-sib × segment-survival-fraction**
 associations, not individual viability gradients.
 
-**Table S16.** Segment-level survival GLM per population: quasi-binomial
+**Table S17.** Segment-level survival GLM per population: quasi-binomial
 regression of `cbind(total_surv_to_flower, seeds_sown −
 total_surv_to_flower)` on z-scored corolla, SLA, δ¹³C, and msm.
 Columns from `broom::tidy()` give the coefficient estimate, SE,
@@ -1828,7 +1897,7 @@ Pearson-residual dispersion (Σ rᵖ² / df) — values >> 1 justify the
 quasi-binomial choice. The original analysis used quasi-binomial for BO
 and HR for precisely this reason.
 
-**Table S16b.** Survival GLM overdispersion diagnostic per population:
+**Table S17b.** Survival GLM overdispersion diagnostic per population:
 the Pearson-residual dispersion statistic Σ rᵖ² / df. Values
 substantially > 1 indicate binomial overdispersion and justify the
 quasi-binomial family used in Table 22.
@@ -1875,7 +1944,7 @@ two specs the Gaussian-on-raw-counts approximation is defensible; if it
 shifts materially, prefer the log1p specification (or move to a Poisson
 family in MCMCglmm).
 
-**Table S17.** β_G sensitivity to fecundity likelihood specification at
+**Table S18.** β_G sensitivity to fecundity likelihood specification at
 AC, both rows on the Lande relative-fitness scale. The main analysis
 (`spec = "raw fec (main)"`) uses `fec_z` from raw counts rescaled by
 CV(fec); the refit (`spec = "log1p(fec) sensitivity"`) uses `fec_z`
@@ -2016,7 +2085,7 @@ rA_BB_no_msm <- extract_rA_subset(fits_BB_no_msm, traits_no_msm)
 well-conditioned five-trait fit should show `max_abs_delta < 0.1`,
 `n_HPD_nonoverlap = 0`, and no sign changes.
 
-**Table S18.** BB trait-drop sensitivity for genetic correlations.
+**Table S19.** BB trait-drop sensitivity for genetic correlations.
 `rA_BB_sensitivity` (first printed table) gives per-pair r_A under the
 main five-trait fit vs. the drop-SLA and drop-msm refits, with HPD
 bounds and `delta = rA_sub − rA_main`. `rA_BB_sens_summary` (second
@@ -2113,7 +2182,7 @@ extract_prior_sensitivity <- function(fits) {
 
 ### 13.3.2 Long-format comparison
 
-**Table S19.** Prior sensitivity (long format) comparing the
+**Table S20.** Prior sensitivity (long format) comparing the
 parameter-expanded (PX, main) and inverse-Wishart (IW, V = I, ν = NT)
 priors at AC and BB. One row per quantity: 10 r_A entries, 5 V_A
 diagonals, and 5 V_M diagonals per population × prior combination.
@@ -2137,7 +2206,7 @@ prior_compare
 
 ### 13.3.3 Wide format with `delta_mean` and HPD-overlap flag
 
-**Table S19b.** Prior sensitivity (wide format) pivoted so each row
+**Table S20b.** Prior sensitivity (wide format) pivoted so each row
 gives one quantity with PX and IW posterior means and HPDs side by
 side, the difference `delta_mean = IW − PX`, and `hpd_overlap` (TRUE
 when the two priors' 95% HPDs overlap; FALSE flags prior-sensitive
@@ -2357,8 +2426,9 @@ save_tbl(pc1_contrib_str,  "08_pc1_contributors")
 save_tbl(pc2_contrib_str,  "08_pc2_contributors")
 
 # Section 9 — evolvability
-save_tbl(evol_tbl,      "09_evolvability_metrics")
-save_tbl(evol_wide_tbl, "09_evolvability_metrics_wide")
+save_tbl(evol_tbl,         "09_evolvability_metrics")
+save_tbl(evol_wide_tbl,    "09_evolvability_metrics_wide")
+save_tbl(e_meanscaled_tbl, "09_evolvability_meanscaled")
 
 # Section 10 — Random Skewers
 save_tbl(rs_tbl, "10_random_skewers")
