@@ -2066,6 +2066,273 @@ CIs (β_P). Filled symbols mark gradients whose interval excludes zero;
 open symbols are non-significant. Y-axis labels include the
 complete-case n per population.
 
+## 11.4 Is genetic variance where selection is acting?
+
+The comparison above shows *directions*; this section asks the
+evolvability question directly: **do the traits and populations under
+phenotypic selection actually carry additive genetic variance?** We answer
+it at two levels — per trait, and multivariately.
+
+### 11.4.1 Per-trait view (Figure 8)
+
+Instead of the unstable ratio β_G/β_P (which explodes wherever β_P ≈ 0, i.e.
+exactly where selection is *absent*), we put the two quantities on
+orthogonal axes: strength of phenotypic selection `|β_P|` on x, additive
+genetic variance V_A on y, one point per non-fecundity trait × population.
+Bold black labels mark traits whose β_P excludes zero (selection is
+detectable); filled points mark traits whose V_A is supported (95% HPD
+excludes zero, as in §6.5a). The combinations that can *respond* to
+selection are the ones that are both bold and filled.
+
+**Figure 8.** Additive genetic variance against strength of phenotypic
+selection, one point per non-fecundity trait × population. x = |β_P|
+(fecundity-only Lande–Arnold gradient, Table S13); y = V_A posterior mean
+(within-population standardized, Table S5). Filled points have V_A whose
+95% HPD excludes zero; bold labels mark traits whose β_P excludes zero.
+Top-right (strong selection **and** supported V_A) is where an adaptive
+response is genetically possible.
+
+```{r va-vs-selection-plot, fig.width=8, fig.height=6}
+if (!exists("VA_SUPPORT_THRESH")) VA_SUPPORT_THRESH <- 1e-3
+
+# Join V_A (z-scale trait keys) to beta_P (fecundity-only; same z keys via
+# `term`). Inner join drops fec_z, which has no phenotypic gradient.
+va_sel_df <- Va_tbl %>%
+  select(Pop, trait, Va_mean, Va_l95) %>%
+  inner_join(
+    beta_P_tbl %>% transmute(Pop, trait = term, bP = estimate,
+                             lo = conf.low, hi = conf.high),
+    by = c("Pop", "trait")
+  ) %>%
+  mutate(
+    Pop     = factor(Pop, levels = c("AC","BB","BO","HR")),
+    lab     = recode(trait, corolla_z = "corolla", SLA_z = "SLA",
+                     d13C_z = "δ13C", msm_z = "msm"),
+    abs_bP  = abs(bP),
+    bP_sig  = (lo > 0) | (hi < 0),
+    support = factor(ifelse(Va_l95 > VA_SUPPORT_THRESH, "supported",
+                            "not supported"),
+                     levels = c("supported", "not supported"))
+  )
+stopifnot(nrow(va_sel_df) == 16)   # 4 non-fec traits × 4 populations
+
+pop_cols <- c(AC = "#F8766D", BB = "#7CAE00", BO = "#00BFC4", HR = "#C77CFF")
+
+# Labels: black-bold where selection is detectable, grey where not. Two
+# fixed-colour layers so label colour does not collide with the Pop scale.
+# Use ggrepel when available (clears the |β_P|≈0.06 overlap); else plain text.
+lab_layers <- if (requireNamespace("ggrepel", quietly = TRUE)) {
+  list(
+    ggrepel::geom_text_repel(
+      data = dplyr::filter(va_sel_df, bP_sig),
+      aes(abs_bP, Va_mean, label = lab), colour = "black", fontface = "bold",
+      size = 3, seed = 1, min.segment.length = 0, inherit.aes = FALSE),
+    ggrepel::geom_text_repel(
+      data = dplyr::filter(va_sel_df, !bP_sig),
+      aes(abs_bP, Va_mean, label = lab), colour = "grey55",
+      size = 3, seed = 1, min.segment.length = 0, inherit.aes = FALSE)
+  )
+} else {
+  list(
+    geom_text(data = dplyr::filter(va_sel_df, bP_sig),
+              aes(abs_bP, Va_mean, label = lab), colour = "black",
+              fontface = "bold", size = 3, vjust = -0.9, inherit.aes = FALSE),
+    geom_text(data = dplyr::filter(va_sel_df, !bP_sig),
+              aes(abs_bP, Va_mean, label = lab), colour = "grey55",
+              size = 3, vjust = -0.9, inherit.aes = FALSE)
+  )
+}
+
+ggplot(va_sel_df, aes(abs_bP, Va_mean, colour = Pop)) +
+  geom_point(aes(shape = support), size = 3.2, stroke = 1) +
+  lab_layers +
+  scale_colour_manual(values = pop_cols) +
+  scale_shape_manual(values = c(supported = 16, `not supported` = 1)) +
+  labs(x = expression("Strength of phenotypic selection  "*group("|",beta[P],"|")*
+                      "   (bold label: "*beta[P]*" excludes 0)"),
+       y = expression(V[A]~"(within-population standardized)"),
+       colour = "Population", shape = expression(V[A]~support)) +
+  coord_cartesian(xlim = c(0, 0.40), ylim = c(0, 0.5)) +
+  theme_classic(base_size = 11)
+```
+
+### 11.4.2 Multivariate view: evolvability along the selection gradient
+
+The per-trait scatter ignores genetic covariances — a trait with little
+V_A of its own can still respond by riding a genetic correlation with a
+selected trait. The covariance-aware summary is the **evolvability in the
+direction of selection**, e(β) = β̂ᵀ **G**_zz β̂, where β̂ is the
+unit-normalised phenotypic selection gradient over the four non-fecundity
+traits and **G**_zz is the corresponding 4×4 additive genetic submatrix.
+This is on the same variance-standardized scale as the mean evolvability
+of §9.1–9.2 (**not** the mean-scaled metric of §9.3): e(β) is simply the
+genetic variance available in the exact direction selection is pushing. We
+compare it to the mean evolvability ē = tr(**G**_zz)/4 — the variance in an
+average random direction — so the ratio e(β)/ē says whether selection is
+aligned with (>1) or points away from (<1) the axes where genetic variance
+is concentrated. β is held at its point estimate; only **G** uncertainty is
+propagated.
+
+**Table S15b.** Evolvability along the selection gradient per population.
+`e_beta` = β̂ᵀ**G**_zzβ̂ (posterior mean [95% HPD]); `e_mean_random` = mean
+evolvability tr(**G**_zz)/4; `ratio` = e(β)/ē (posterior median [95% HPD]).
+Ratio HPDs are wide and all overlap 1, so the point estimates are
+suggestive, not conclusive.
+
+```{r ebeta-along-selection}
+z_idx <- which(TRAITS != "fec_z")   # non-fecundity trait indices
+
+ebeta_post <- purrr::imap(post_main, function(p, pop) {
+  b <- beta_P_tbl %>%
+    filter(Pop == pop) %>%
+    arrange(match(term, TRAITS[z_idx])) %>%
+    pull(estimate)
+  stopifnot(length(b) == 4, !anyNA(b))
+  bhat <- b / sqrt(sum(b^2))
+  G <- p$G_array
+  e    <- vapply(seq_len(dim(G)[1]),
+                 function(k) as.numeric(t(bhat) %*% G[k, z_idx, z_idx] %*% bhat),
+                 numeric(1))
+  ebar <- vapply(seq_len(dim(G)[1]),
+                 function(k) mean(diag(G[k, z_idx, z_idx])), numeric(1))
+  list(e = e, ebar = ebar, ratio = e / ebar)
+})
+
+ebeta_tbl <- purrr::imap_dfr(ebeta_post, function(x, pop) {
+  he <- safe_hpd(x$e); hr <- safe_hpd(x$ratio)
+  tibble(Pop = pop,
+         e_beta_mean = mean(x$e), e_beta_l95 = he[1], e_beta_u95 = he[2],
+         e_mean_random = mean(x$ebar),
+         ratio_med = median(x$ratio), ratio_l95 = hr[1], ratio_u95 = hr[2])
+})
+ebeta_tbl %>%
+  mutate(
+    e_beta = sprintf("%.3f [%.3f, %.3f]", e_beta_mean, e_beta_l95, e_beta_u95),
+    ratio  = sprintf("%.2f [%.2f, %.2f]", ratio_med, ratio_l95, ratio_u95)
+  ) %>%
+  select(Pop, e_beta, e_mean_random, ratio)
+```
+
+**Figure 9.** Evolvability along the selection gradient. For each
+population, the coloured point and bar are e(β) (posterior mean ± 95% HPD)
+— the additive genetic variance in the direction phenotypic selection is
+pushing; the open diamond is the mean (random-direction) evolvability ē.
+Points to the right of their diamond indicate selection aligned with
+genetic variance (AC, BB); to the left indicates selection pointing away
+from the main axes of variance (BO, HR). Intervals are wide, so this is
+suggestive rather than conclusive.
+
+```{r ebeta-plot, fig.width=7, fig.height=3.2}
+ebeta_plot_df <- ebeta_tbl %>%
+  mutate(Pop = factor(Pop, levels = rev(c("AC","BB","BO","HR"))))
+
+ggplot(ebeta_plot_df, aes(y = Pop)) +
+  geom_errorbar(aes(xmin = e_beta_l95, xmax = e_beta_u95, colour = Pop),
+                orientation = "y", width = 0.15, linewidth = 0.5) +
+  geom_point(aes(x = e_beta_mean, colour = Pop), size = 3.2) +
+  geom_point(aes(x = e_mean_random), shape = 5, size = 3, stroke = 0.9,
+             colour = "grey30") +
+  scale_colour_manual(values = pop_cols, guide = "none") +
+  labs(x = expression("Evolvability (within-population standardized)   "*
+                      "● e("*beta*")  along selection      ◇ "*bar(e)*" random"),
+       y = NULL) +
+  coord_cartesian(xlim = c(0, NA)) +
+  theme_classic(base_size = 11)
+```
+
+### 11.4.3 Radar view (Figure 10)
+
+The same per-trait information as Figure 8, in a radar/spider layout that
+makes the *shape* of each population's variance–selection landscape easy to
+compare at a glance. One web per population; the four non-fecundity traits
+are the axes. The filled coloured web is V_A per trait; the dashed web is
+the strength of phenotypic selection `|β_P|`. Both are plotted on the same
+standardized radial scale (0–0.5), so where a coloured bulge sits under a
+dashed bulge, there is additive genetic variance in a trait that is under
+selection. As in Figure 8 we plot `|β_P|`, **not** the ratio β_G/β_P, which
+would spike wherever β_P ≈ 0.
+
+The radar is built directly in Cartesian coordinates (angle per trait,
+radius = value) rather than via `coord_polar`, which does not reliably put
+value 0 at the geometric centre.
+
+**Figure 10.** Additive genetic variance (filled coloured web) and strength
+of phenotypic selection |β_P| (dashed web) across the four non-fecundity
+traits, one panel per population, on a shared standardized radial axis
+(0–0.5). Filled dots mark traits whose V_A 95% HPD excludes zero; grey
+rings mark traits whose β_P excludes zero. Reuses `va_sel_df` from Figure 8.
+
+```{r selection-radar-plot, fig.width=12, fig.height=3.8}
+stopifnot(exists("va_sel_df"))            # built in §11.4.1
+
+RMAX <- 0.5                                # outer ring / radial maximum
+ang  <- c(corolla = 90, SLA = 0, `δ13C` = -90, msm = -180)   # clockwise from top
+pops <- c("AC", "BB", "BO", "HR")
+xy   <- function(r, a_deg) list(x = r * cos(a_deg * pi / 180),
+                                y = r * sin(a_deg * pi / 180))
+
+radar_df <- va_sel_df %>%
+  transmute(Pop = factor(Pop, levels = pops),
+            trait = factor(lab, levels = names(ang)),
+            a = ang[as.character(lab)],
+            Va_mean, abs_bP,
+            Va_supported = Va_l95 > VA_SUPPORT_THRESH,
+            bP_sig) %>%
+  arrange(Pop, trait)                      # vertices in angular order for the polygons
+radar_df$va_x <- xy(radar_df$Va_mean, radar_df$a)$x
+radar_df$va_y <- xy(radar_df$Va_mean, radar_df$a)$y
+radar_df$bp_x <- xy(radar_df$abs_bP,  radar_df$a)$x
+radar_df$bp_y <- xy(radar_df$abs_bP,  radar_df$a)$y
+
+# Background grid (concentric rings + spokes + labels), replicated per facet.
+circ <- tidyr::crossing(Pop = factor(pops, pops), r = c(0.25, 0.5),
+                        th = seq(0, 2 * pi, length.out = 120)) %>%
+  mutate(x = r * cos(th), y = r * sin(th))
+spokes <- tidyr::crossing(Pop = factor(pops, pops), a = ang) %>%
+  mutate(x = RMAX * cos(a * pi / 180), y = RMAX * sin(a * pi / 180))
+axlab <- tidyr::crossing(Pop = factor(pops, pops),
+                         tibble(lab = names(ang), a = ang)) %>%
+  mutate(x = 0.62 * cos(a * pi / 180), y = 0.62 * sin(a * pi / 180))
+rlab <- tibble(Pop = factor("AC", pops), x = 0.02, y = c(0.25, 0.5),
+               lab = c("0.25", "0.5"))
+
+pop_cols <- c(AC = "#F8766D", BB = "#7CAE00", BO = "#00BFC4", HR = "#C77CFF")
+
+ggplot() +
+  geom_path(data = circ, aes(x, y, group = interaction(Pop, r)),
+            colour = "grey86", linewidth = 0.3) +
+  geom_segment(data = spokes, aes(0, 0, xend = x, yend = y),
+               colour = "grey86", linewidth = 0.3) +
+  geom_polygon(data = radar_df,
+               aes(va_x, va_y, group = Pop, colour = Pop, fill = Pop),
+               alpha = 0.28, linewidth = 0.7) +
+  geom_point(data = dplyr::filter(radar_df, Va_supported),
+             aes(va_x, va_y, colour = Pop), size = 2.6) +
+  geom_polygon(data = radar_df, aes(bp_x, bp_y, group = Pop),
+               fill = NA, colour = "grey20", linetype = "dashed",
+               linewidth = 0.6) +
+  geom_point(data = dplyr::filter(radar_df, bP_sig),
+             aes(bp_x, bp_y), shape = 1, colour = "grey20", size = 2.8,
+             stroke = 0.9) +
+  geom_text(data = axlab, aes(x, y, label = lab), size = 3, colour = "grey30") +
+  geom_text(data = rlab, aes(x, y, label = lab), size = 2.3,
+            colour = "grey65", hjust = 0) +
+  scale_colour_manual(values = pop_cols, guide = "none") +
+  scale_fill_manual(values = pop_cols, guide = "none") +
+  facet_wrap(~ Pop, nrow = 1) +
+  coord_equal(clip = "off") +
+  labs(title = paste("Genetic variance (filled web) and strength of",
+                     "phenotypic selection (dashed) across traits"),
+       subtitle = paste("Filled dot = supported V_A; grey ring = detectable",
+                        "selection. Radial axis 0 to 0.5, standardized.")) +
+  theme_void(base_size = 11) +
+  theme(strip.text = element_text(face = "bold", size = 12),
+        plot.title = element_text(size = 11),
+        plot.subtitle = element_text(size = 8.5, colour = "grey40"),
+        plot.margin = margin(8, 20, 8, 20),
+        panel.spacing = unit(1.5, "lines"))
+```
+
 # 12 · Sibship-level associations between focal-plant traits and segment survival
 
 The phenotypic β in §11 only sees plants that survived to flowering, so
