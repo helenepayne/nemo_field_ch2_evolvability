@@ -76,6 +76,10 @@ suppressPackageStartupMessages({
   library(lmtest)     # coeftest / waldtest with vcov.
   library(multcompView) # compact letter displays from Tukey HSD
   library(ggh4x)        # per-facet scale overrides (δ¹³C y-axis inversion)
+  library(sf)           # Figure 2A study-site map
+  library(rnaturalearth) # California state polygon for the map
+  library(ggspatial)    # scale bar + north arrow on the map
+  library(ragg)         # ragg_png device: clean ‰ / δ¹³C glyphs in figures
 })
 
 suppressPackageStartupMessages(library(conflicted))
@@ -177,6 +181,111 @@ fetch_dryad(c("AC_compiledsheet_full_2022.csv",
               "BO_compiledsheet_full_2022.csv",
               "HR_compiledsheet_full_2022.csv"))
 ```
+
+## 2.5 Study system: field sites and climate space (Figure 2)
+
+The four study populations span a latitudinal gradient in California. This
+figure has two panels, built here from hard-coded site coordinates and the
+Table 1 climate summaries (it needs none of the downloaded trait data):
+
+- **Panel A** — a map of the four field sites: Angelo Coast (AC), Bodega
+  Bay (BB), Blue Oak (BO), and Hastings Ranch (HR). The California polygon
+  comes from `rnaturalearth`; the site coordinates match Chapter 1.
+- **Panel B** — the same four populations positioned in *climate space*.
+  Axes are spring precipitation (x) vs spring temperature (y): the two most
+  differentiating climate axes for these sites and, because *N. menziesii*
+  is a spring annual, the selective environment the plants experience.
+  Spring temperature separates AC from BB (10.5 vs 11.7 °C) where annual
+  temperature does not (12.30 vs 12.43 °C). Spring VPD was rejected as an
+  axis — it is non-monotonic across the four sites (0.44 / 0.52 / 0.38 /
+  0.49 kPa) and so does not order the populations. Error bars are ±1
+  interannual SD (Table 1), i.e. among-year variability, not a standard
+  error of a mean.
+
+Population colours are the ggplot2 default hue palette on alphabetical
+AC/BB/BO/HR, matching Figure 4 (raw trait means) so all panels read as one
+study. The two Central Coast sites (BO, HR) are climatically almost
+coincident, so their labels are nudged apart vertically in panel B.
+
+```{r figure2-sites-climate, fig.width=11, fig.height=5.2, dev=c("ragg_png", "pdf")}
+# Shared population colours (ggplot2 default hue order on AC/BB/BO/HR).
+pop_cols <- c(AC = "#F8766D", BB = "#7CAE00", BO = "#00BFC4", HR = "#C77CFF")
+
+## --- Panel A: field-site map ------------------------------------------
+locations <- data.frame(
+  name = c("Angelo Coast (AC)", "Bodega Bay (BB)",
+           "Blue Oak (BO)", "Hastings Ranch (HR)"),
+  lat = c(39.7469, 38.3146, 37.3870, 36.3783),
+  lon = c(-123.6380, -123.0694, -121.7158, -121.5662)
+)
+site_colors <- setNames(pop_cols, locations$name)  # map full names -> colours
+
+sites_sf   <- st_as_sf(locations, coords = c("lon", "lat"), crs = 4326)
+us_states  <- ne_states(country = "united states of america",
+                        returnclass = "sf")
+california <- us_states[us_states$name == "California", ]
+
+panel_a <- ggplot() +
+  geom_sf(data = california, fill = "gray95", color = "black") +
+  geom_sf(data = sites_sf, aes(color = name), size = 3, show.legend = FALSE) +
+  geom_sf_text(data = sites_sf, aes(label = name),
+               nudge_x = 0.17, size = 4, hjust = 0) +
+  scale_color_manual(values = site_colors) +
+  annotation_scale(location = "bl", width_hint = 0.25) +
+  annotation_north_arrow(location = "tl", which_north = "true",
+                         style = north_arrow_fancy_orienteering) +
+  coord_sf(xlim = c(-125.5, -117.8), ylim = c(35.5, 41)) +
+  labs(x = "Longitude", y = "Latitude", tag = "A") +
+  theme_bw(base_size = 12) +
+  theme(plot.tag = element_text(face = "bold"),
+        plot.margin = margin(6, 12, 6, 6))
+
+## --- Panel B: climate space (Table 1: mean ± interannual SD) -----------
+sites <- data.frame(
+  Population     = factor(c("AC", "BB", "BO", "HR"),
+                          levels = c("AC", "BB", "BO", "HR")),
+  spring_ppt     = c(541.4, 222.7, 185.0, 187.5),   # mm
+  spring_ppt_sd  = c(255.8, 118.6, 101.7, 100.9),
+  spring_temp    = c(10.5, 11.7, 12.4, 12.4),        # deg C
+  spring_temp_sd = c(1.1, 0.9, 1.1, 1.0)
+)
+# Direct labels: BO and HR nearly coincide, so push them apart vertically.
+lab <- within(sites, {
+  hjust   <- c(AC = 0,   BB = 0,   BO = 0.5, HR = 0.5)[as.character(Population)]
+  nudge_x <- c(AC = 14,  BB = 12,  BO = 0,   HR = 0  )[as.character(Population)]
+  nudge_y <- c(AC = 0.10,BB = 0.12,BO = 0.24,HR = -0.24)[as.character(Population)]
+})
+
+panel_b <- ggplot(sites, aes(spring_ppt, spring_temp, colour = Population)) +
+  geom_errorbar(aes(ymin = spring_temp - spring_temp_sd,
+                    ymax = spring_temp + spring_temp_sd),
+                width = 0, linewidth = 0.4, alpha = 0.5) +
+  geom_errorbar(aes(xmin = spring_ppt - spring_ppt_sd,
+                    xmax = spring_ppt + spring_ppt_sd),
+                orientation = "y", width = 0, linewidth = 0.4, alpha = 0.5) +
+  geom_point(size = 3.4) +
+  geom_text(data = lab,
+            aes(x = spring_ppt + nudge_x, y = spring_temp + nudge_y,
+                label = Population, hjust = hjust),
+            fontface = "bold", size = 3.6, show.legend = FALSE) +
+  scale_colour_manual(values = pop_cols, guide = "none") +
+  labs(x = "Spring precipitation (mm)",
+       y = expression("Spring temperature ("*degree*"C)"),
+       tag = "B") +
+  coord_cartesian(xlim = c(60, 820), ylim = c(9.2, 13.6), clip = "off") +
+  theme_bw(base_size = 12) +
+  theme(plot.tag = element_text(face = "bold"),
+        plot.margin = margin(6, 12, 6, 6))
+
+panel_a + panel_b + plot_layout(widths = c(1.1, 1))
+```
+
+**Figure 2.** Study system. (A) The four *Nemophila menziesii* field sites
+along a California latitudinal gradient — Angelo Coast (AC), Bodega Bay
+(BB), Blue Oak (BO), Hastings Ranch (HR). (B) The same four populations in
+climate space (spring precipitation × spring temperature); error bars are
+±1 interannual SD from Table 1. Point/label colours are shared across
+panels and match Figure 4.
 
 # 3 · Data preparation
 
@@ -516,6 +625,106 @@ discrimination, higher water-use efficiency) appear at the top; the
 letter `a` in that panel therefore corresponds to AC (the most-negative
 δ¹³C population). Y-axes are panel-specific (free scales). Mirrors Figure
 4 / Table S3 of the manuscript.
+
+## 3.7 Trait frequency distributions
+
+Histograms of the five raw focal traits, one row per population. These are
+the *same F-plant measurements that enter the animal model* — drawn
+straight from `pop_data[[pop]]$fp` (the post-substitution, F-plants-only
+set, not a raw `F_plant == TRUE` filter of the source sheets). The
+per-panel `n` is the number of **non-missing** measurements for that
+trait × population, so it is ≤ the per-population F-plant total in §3.4
+(e.g. AC has 321 F-plants but only 267 non-missing corolla measurements);
+the per-trait counts sum under those totals rather than equalling them.
+
+```{r trait-distributions, fig.width=11, fig.height=8, dev=c("ragg_png", "pdf")}
+trait_labels <- c(
+  corolla = "Corolla~diameter~(mm)",
+  SLA     = "SLA~(mm^2~mg^-1)",
+  d13C    = "delta^13*C~('‰')",
+  msm     = "Mean~seed~mass~(mg)",
+  fec     = "Fecundity~(filled~seeds)"
+)
+
+trait_long <- purrr::imap_dfr(pop_data, function(d, pop) {
+  d$fp %>% transmute(Population = pop, corolla, SLA, d13C, msm, fec)
+}) %>%
+  tidyr::pivot_longer(-Population, names_to = "trait", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(Population = factor(Population, levels = c("AC", "BB", "BO", "HR")),
+         trait      = factor(trait, levels = names(trait_labels)))
+
+# Per-panel n, placed top-right of each facet.
+trait_n_lab <- trait_long %>%
+  group_by(Population, trait) %>%
+  summarise(n = n(), .groups = "drop")
+
+ggplot(trait_long, aes(value, fill = Population)) +
+  geom_histogram(bins = 25, colour = "grey20", linewidth = 0.15) +
+  geom_text(data = trait_n_lab, aes(label = paste0("n=", n)),
+            x = Inf, y = Inf, hjust = 1.1, vjust = 1.4,
+            size = 2.7, inherit.aes = FALSE) +
+  facet_grid(Population ~ trait, scales = "free",
+             labeller = labeller(trait = as_labeller(trait_labels, label_parsed))) +
+  scale_fill_brewer(palette = "Set2", guide = "none") +
+  labs(x = "Raw trait value", y = "Count") +
+  theme_bw(base_size = 11) +
+  theme(panel.grid.minor = element_blank(),
+        strip.text = element_text(size = 9),
+        strip.background = element_rect(fill = "grey92"))
+```
+
+**Supplementary figure.** Frequency distributions of the five raw focal
+traits by population, for the F-plants entering the animal model. Per-panel
+`n` is the number of non-missing measurements for that trait × population,
+which is ≤ the per-population F-plant total reported in §3.4.
+
+## 3.8 Sire (paternal-family) trait distributions
+
+The design is a paternal half-sib cross, so it is also worth seeing the
+spread of *sire means*: for each sire (`Donor`) we average the raw trait
+values of its measured F-plant offspring, then plot the distribution of
+those sire means. The sire labels are already normalised inside
+`prep_population()`, so no sire is split across two groups here.
+
+```{r sire-trait-distributions, fig.width=11, fig.height=8, dev=c("ragg_png", "pdf")}
+sire_means <- purrr::imap_dfr(pop_data, function(d, pop) {
+  d$fp %>% transmute(Population = pop, sire, corolla, SLA, d13C, msm, fec)
+}) %>%
+  tidyr::pivot_longer(c(corolla, SLA, d13C, msm, fec),
+                      names_to = "trait", values_to = "value") %>%
+  group_by(Population, sire, trait) %>%
+  summarise(sire_mean = mean(value, na.rm = TRUE),
+            n_off = sum(!is.na(value)), .groups = "drop") %>%
+  filter(n_off > 0) %>%   # drop sire × trait cells with no observed offspring
+  mutate(Population = factor(Population, levels = c("AC", "BB", "BO", "HR")),
+         trait      = factor(trait, levels = names(trait_labels)))
+
+# Per-panel sire count (sires contributing a mean for that trait).
+sire_n_lab <- sire_means %>%
+  group_by(Population, trait) %>%
+  summarise(n = n(), .groups = "drop")
+
+ggplot(sire_means, aes(sire_mean, fill = Population)) +
+  geom_histogram(bins = 18, colour = "grey20", linewidth = 0.15) +
+  geom_text(data = sire_n_lab, aes(label = paste0("sires=", n)),
+            x = Inf, y = Inf, hjust = 1.1, vjust = 1.4,
+            size = 2.7, inherit.aes = FALSE) +
+  facet_grid(Population ~ trait, scales = "free",
+             labeller = labeller(trait = as_labeller(trait_labels, label_parsed))) +
+  scale_fill_brewer(palette = "Set2", guide = "none") +
+  labs(x = "Sire (paternal family) mean of raw trait value",
+       y = "Number of sires") +
+  theme_bw(base_size = 11) +
+  theme(panel.grid.minor = element_blank(),
+        strip.text = element_text(size = 9),
+        strip.background = element_rect(fill = "grey92"))
+```
+
+**Supplementary figure.** Distributions of sire (paternal-family) trait
+means by population. Each sire mean averages the raw trait values of that
+sire's measured F-plant offspring; `sires=` is the number of sires
+contributing a mean for that trait × population.
 
 # 4 · The animal model
 
@@ -2321,16 +2530,15 @@ ggplot() +
   scale_fill_manual(values = pop_cols, guide = "none") +
   facet_wrap(~ Pop, nrow = 1) +
   coord_equal(clip = "off") +
-  labs(title = paste("Genetic variance (filled web) and strength of",
-                     "phenotypic selection (dashed) across traits"),
-       subtitle = paste("Filled dot = supported V_A; grey ring = detectable",
+  labs(subtitle = paste("Filled dot = supported V_A; grey ring = detectable",
                         "selection. Radial axis 0 to 0.5, standardized.")) +
   theme_void(base_size = 11) +
   theme(strip.text = element_text(face = "bold", size = 12),
-        plot.title = element_text(size = 11),
         plot.subtitle = element_text(size = 8.5, colour = "grey40"),
         plot.margin = margin(8, 20, 8, 20),
-        panel.spacing = unit(1.5, "lines"))
+        panel.spacing = unit(1.5, "lines"),
+        plot.background = element_rect(fill = "white", colour = NA),
+        panel.background = element_rect(fill = "white", colour = NA))
 ```
 
 # 12 · Sibship-level associations between focal-plant traits and segment survival
