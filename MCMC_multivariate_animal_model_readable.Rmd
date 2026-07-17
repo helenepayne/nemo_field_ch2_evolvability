@@ -883,6 +883,229 @@ Va_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
 Va_tbl
 ```
 
+## 6.5a V_A against trait mean (Figure 3)
+
+This figure pairs each population's raw trait **mean** (x, the same values
+as Figure 4) with its additive genetic variance **V_A** (y, on the
+within-population z-scale so it is comparable across traits). The point of
+the panel is not the mean per se but *which trait × population combinations
+carry additive genetic variance that is statistically supported*: filled
+points have a V_A whose 95% HPD interval excludes zero, open points do not.
+This extends the paper's r_A convention ("HPD excludes zero") to the
+variances. Because a variance is bounded below at zero, "excludes zero" is
+operationalised as a lower 95% HPD bound bounded away from the boundary
+(`VA_SUPPORT_THRESH`); the classification is not sensitive to the exact
+cutoff — supported estimates have `Va_l95` > 0.06 while every other
+estimate has `Va_l95` < 1e-6, so there is a wide empty gap between the two
+groups. The vertical HPD bars double-encode this: unsupported bars stretch
+down to ~0, supported bars float above it.
+
+Only three combinations are supported: δ¹³C at AC and HR, and mean seed
+mass at HR. This coheres with the rest of the analysis — δ¹³C reads as the
+most heritable trait across sites, and the one r_A whose HPD excludes zero
+(δ¹³C × mean seed mass at HR, Figure 5) sits exactly among these supported
+variances. Note that fecundity shows no supported V_A in any population;
+this is partly a modelling artefact, since the Gaussian likelihood on a
+zero-inflated count attenuates V_A(fec) (see §4.1), not purely biology.
+
+**Figure 3.** Additive genetic variance (V_A, posterior mean ± 95% HPD)
+against the raw trait mean, one panel per trait. Each point is a
+population (colour); filled = V_A significant (95% HPD excludes zero),
+open = non-significant. V_A is on the within-population standardized scale
+(dimensionless), so the shared y-axis is comparable across traits; x-axes
+are free because raw means are on trait-specific units.
+
+```{r va-vs-mean-plot, fig.width=11, fig.height=3.6}
+# V_A is "supported" when its 95% HPD excludes zero. A variance cannot be
+# negative, so we test whether the lower HPD bound is bounded away from the
+# zero boundary. The gap is wide (supported Va_l95 > 0.06, all others
+# < 1e-6), so any threshold in (1e-5, 0.05) gives the same classification.
+VA_SUPPORT_THRESH <- 1e-3
+
+# Va_tbl trait keys are z-scale (corolla_z, ...); trait_means_tbl keys are
+# raw (corolla_diam_mm, ...). Join through an explicit named mapping, never
+# positionally, so a mean is never paired with the wrong V_A.
+va_to_mean_key <- c(corolla_z = "corolla_diam_mm", SLA_z = "SLA",
+                    d13C_z = "d13C", msm_z = "mean_seed_mass_mg",
+                    fec_z = "fecundity")
+va_to_label <- c(corolla_z = "corolla diameter (mm)", SLA_z = "SLA (mm^2/mg)",
+                 d13C_z = "δ13C (‰)", msm_z = "mean seed mass (mg)",
+                 fec_z = "fecundity (filled seeds)")
+
+va_mean_df <- Va_tbl %>%
+  mutate(mean_key = va_to_mean_key[trait]) %>%
+  left_join(trait_means_tbl %>% select(Pop, mean_key = trait, mean),
+            by = c("Pop", "mean_key")) %>%
+  mutate(
+    Pop         = factor(Pop, levels = c("AC", "BB", "BO", "HR")),
+    trait_label = factor(va_to_label[trait], levels = unname(va_to_label)),
+    support     = factor(ifelse(Va_l95 > VA_SUPPORT_THRESH,
+                                "significant", "non-significant"),
+                         levels = c("significant", "non-significant"))
+  )
+# Every V_A row must have matched exactly one trait mean.
+stopifnot(nrow(va_mean_df) == nrow(Va_tbl), !anyNA(va_mean_df$mean))
+
+# Population colours: ggplot2 default hue palette on AC/BB/BO/HR, matching
+# Figure 4 (raw trait means).
+pop_cols <- c(AC = "#F8766D", BB = "#7CAE00", BO = "#00BFC4", HR = "#C77CFF")
+
+ggplot(va_mean_df, aes(mean, Va_mean, colour = Pop)) +
+  geom_errorbar(aes(ymin = Va_l95, ymax = Va_u95),
+                width = 0, linewidth = 0.4, alpha = 0.5) +
+  geom_point(aes(shape = support), size = 3, stroke = 1) +
+  facet_wrap(~ trait_label, scales = "free_x", nrow = 1) +
+  scale_colour_manual(values = pop_cols) +
+  scale_shape_manual(values = c(significant = 16, `non-significant` = 1)) +
+  labs(x = "Trait mean (raw scale)",
+       y = expression(V[A]~"(within-population standardized)"),
+       colour = "Population", shape = expression(V[A]~significance)) +
+  theme_classic(base_size = 11) +
+  theme(strip.text    = element_text(size = 8.5),
+        panel.spacing = unit(0.9, "lines"))
+```
+
+## 6.5b Full additive genetic covariance matrix (G)
+
+Table S5 above reports only the **diagonal** of **G** (the V_A estimates).
+The full covariance-scale **G** is estimated for every population — its
+diagonal is V_A and its off-diagonals are the raw additive genetic
+*covariances* — but elsewhere these off-diagonals are only ever shown
+after rescaling to correlations (r_A, Table S8/S8b). The tables below
+print the covariance-scale **G** itself, so the variances and the raw
+covariances appear on the same scale.
+
+**Table S5b.** Posterior additive genetic variance–covariance matrix
+(**G**) per population, long format. One row per unique entry
+(upper triangle including the diagonal). `entry` is `"variance"` on the
+diagonal (trait1 = trait2) and `"covariance"` off the diagonal.
+`cov_mean` is the posterior mean; `cov_l95` / `cov_u95` are the 95% HPD
+bounds; `sig = TRUE` flags entries whose HPD excludes zero. These are on
+the z-scored within-population (standardized) scale, identical to Table S5.
+
+```{r G-cov-table-long}
+G_cov_tbl <- purrr::imap_dfr(post_main, function(p, pop) {
+  G_arr <- p$G_array
+  ut <- which(upper.tri(diag(NT), diag = TRUE), arr.ind = TRUE)
+  purrr::map_dfr(seq_len(nrow(ut)), function(idx) {
+    i <- ut[idx, 1]; j <- ut[idx, 2]
+    x <- G_arr[, i, j]
+    h <- safe_hpd(x)
+    tibble(Pop    = pop,
+           trait1 = TRAITS[i],
+           trait2 = TRAITS[j],
+           entry  = ifelse(i == j, "variance", "covariance"),
+           cov_mean = mean(x, na.rm = TRUE),
+           cov_l95  = h[1], cov_u95 = h[2],
+           sig      = isTRUE(h[1] > 0) || isTRUE(h[2] < 0))
+  })
+})
+G_cov_tbl
+```
+
+Same data as a wide trait-by-trait covariance matrix, formatted as
+`"mean [l95, u95]"` with **bold** for entries whose HPD excludes zero
+(matches the Table S8b layout; diagonal cells are the V_A from Table S5).
+
+**Table S5c.** Posterior **G** in wide trait-by-trait format. Diagonal
+cells are additive genetic variances (V_A); off-diagonal cells are
+additive genetic covariances. Each cell shows `"mean [l95, u95]"`;
+**bold** entries have a 95% HPD that excludes zero.
+
+```{r G-cov-table-wide}
+purrr::imap_dfr(post_main, function(p, pop) {
+  m <- p$G_summary$mean; l <- p$G_summary$l95
+  u <- p$G_summary$u95;  s <- p$G_summary$sig
+  expand_grid(trait1 = TRAITS, trait2 = TRAITS) %>%
+    mutate(
+      Pop  = pop,
+      mean = as.vector(m[cbind(match(trait1, TRAITS), match(trait2, TRAITS))]),
+      l95  = as.vector(l[cbind(match(trait1, TRAITS), match(trait2, TRAITS))]),
+      u95  = as.vector(u[cbind(match(trait1, TRAITS), match(trait2, TRAITS))]),
+      sig  = as.vector(s[cbind(match(trait1, TRAITS), match(trait2, TRAITS))])
+    )
+}) %>%
+  mutate(
+    label  = sprintf("%.3f [%.3f, %.3f]", mean, l95, u95),
+    label  = ifelse(sig, paste0("**", label, "**"), label),
+    trait1 = factor(trait1, levels = TRAITS),
+    trait2 = factor(trait2, levels = TRAITS)
+  ) %>%
+  select(Pop, trait1, trait2, label) %>%
+  tidyr::pivot_wider(names_from = trait2, values_from = label)
+```
+
+## 6.5c G heatmap (covariance scale)
+
+The covariance-scale analogue of the r_A heatmap. Diagonal cells are
+additive genetic variances (V_A); off-diagonal cells are additive
+genetic covariances. The diverging fill is centred at zero and scaled
+symmetrically to the largest absolute entry, so the (positive) variances
+on the diagonal are the most saturated. Cells whose 95% HPD excludes zero
+are bordered in black and shown at full saturation; the rest are
+de-saturated. Contrast with the r_A heatmap (Figure 5), which is this same
+**G** rescaled to correlations — there the diagonal is fixed at 1.00 by
+definition and carries no information about V_A.
+
+```{r G-cov-plot, fig.width=10, fig.height=8}
+G_trait_labels <- c(corolla_z = "corolla", SLA_z = "SLA",
+                    d13C_z = "δ13C", msm_z = "msm", fec_z = "fecundity")
+
+G_cov_long <- purrr::imap_dfr(post_main, function(p, pop) {
+  m   <- p$G_summary$mean
+  l   <- p$G_summary$l95
+  u   <- p$G_summary$u95
+  sig <- p$G_summary$sig
+  expand_grid(trait1 = rownames(m), trait2 = colnames(m)) %>%
+    mutate(
+      Pop = pop,
+      G   = as.vector(m), l95 = as.vector(l), u95 = as.vector(u),
+      sig = as.vector(sig),
+      trait1 = factor(recode(trait1, !!!G_trait_labels),
+                      levels = unname(G_trait_labels)),
+      trait2 = factor(recode(trait2, !!!G_trait_labels),
+                      levels = unname(G_trait_labels))
+    )
+})
+
+G_lim <- max(abs(G_cov_long$G), na.rm = TRUE)
+
+ggplot(G_cov_long, aes(trait1, trait2, fill = G)) +
+  geom_tile(aes(alpha = ifelse(sig, 1, 0.35)), colour = NA) +
+  geom_tile(data = filter(G_cov_long, sig),
+            fill = NA, colour = "black", linewidth = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", G),
+                fontface = ifelse(sig, "bold", "plain")), size = 3.2) +
+  scale_alpha_identity() +
+  scale_fill_gradient2(low = "#3B9AB2", mid = "white", high = "#F21A00",
+                       midpoint = 0, limits = c(-G_lim, G_lim)) +
+  coord_equal() +
+  facet_wrap(~ Pop) +
+  labs(x = NULL, y = NULL, fill = "G (cov)") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r G-cov-plot-tri, fig.width=10, fig.height=8}
+G_cov_tri <- G_cov_long %>%
+  filter(as.integer(trait2) >= as.integer(trait1))
+
+ggplot(G_cov_tri, aes(trait1, trait2, fill = G)) +
+  geom_tile(aes(alpha = ifelse(sig, 1, 0.35)), colour = NA) +
+  geom_tile(data = filter(G_cov_tri, sig),
+            fill = NA, colour = "black", linewidth = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", G),
+                fontface = ifelse(sig, "bold", "plain")), size = 3.2) +
+  scale_alpha_identity() +
+  scale_fill_gradient2(low = "#3B9AB2", mid = "white", high = "#F21A00",
+                       midpoint = 0, limits = c(-G_lim, G_lim)) +
+  coord_equal() +
+  facet_wrap(~ Pop) +
+  labs(x = NULL, y = NULL, fill = "G (cov)") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 ## 6.6 V_M diagonals (maternal/dam variance)
 
 V_M from `us(trait):dam` is the variance among dams — it captures
