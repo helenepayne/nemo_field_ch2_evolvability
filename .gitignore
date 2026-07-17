@@ -11,6 +11,7 @@
 *.docx
 *_files/
 *_cache/
+knit.log
 
 # MCMC fit cache (RDS files; regenerable from cached fits via the Rmd)
 cache/
