@@ -1252,6 +1252,29 @@ panel per population. Cell colour encodes the posterior mean of r_A
 are bordered in black and shown at full saturation with bold labels;
 non-significant cells are de-saturated.
 
+```{r rA-plot-tri, fig.width=10, fig.height=8}
+rA_tri <- rA_long %>%
+  filter(as.integer(trait2) > as.integer(trait1))
+
+ggplot(rA_tri, aes(trait1, trait2, fill = rA)) +
+  geom_tile(aes(alpha = ifelse(sig, 1, 0.35)), colour = NA) +
+  geom_tile(data = filter(rA_tri, sig),
+            fill = NA, colour = "black", linewidth = 0.6) +
+  geom_text(aes(label = sprintf("%.2f", rA),
+                fontface = ifelse(sig, "bold", "plain")), size = 3.2) +
+  scale_alpha_identity() +
+  scale_fill_gradient2(low = "#3B9AB2", mid = "white", high = "#F21A00",
+                       midpoint = 0, limits = c(-1, 1)) +
+  coord_equal() +
+  facet_wrap(~ Pop) +
+  labs(x = NULL, y = NULL, fill = "r_A") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+**Figure 5b.** Same as Figure 5 but showing only the lower triangle
+(unique pairs, diagonal excluded). Each trait pair appears once.
+
 # 8 · Eigenanalysis of G
 
 The eigendecomposition of G summarises which directions in trait space
